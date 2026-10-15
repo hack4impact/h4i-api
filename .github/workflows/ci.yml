@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+      # The web app (web/) is built and tested by Gradle with npm.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # Tests and jOOQ codegen start Postgres with Testcontainers; the runner has Docker.
+      - run: ./gradlew build
+      - name: Upload jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: jar
+          path: build/libs/portal-*.jar
+          retention-days: 7
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: build/reports/tests
+
+  image:
+    name: Build and push image
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # The hack4impact org allows only GitHub-owned actions, so Docker steps use the CLI directly.
+      - uses: actions/checkout@v7
+      - name: Download jar
+        uses: actions/download-artifact@v8
+        with:
+          name: jar
+          path: build/libs
+      - id: ref
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg PORTAL_VERSION=${{ github.sha }} \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            -t ${{ steps.ref.outputs.image }}:${{ github.sha }} \
+            -t ${{ steps.ref.outputs.image }}:main .
+      - name: Push image
+        run: docker push --all-tags ${{ steps.ref.outputs.image }}

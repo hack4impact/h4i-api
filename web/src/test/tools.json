@@ -1,0 +1,6 @@
+[
+  { "key": "slack", "name": "Slack", "order": 1 },
+  { "key": "google", "name": "Google", "order": 2 },
+  { "key": "github", "name": "GitHub", "order": 3 },
+  { "key": "notion", "name": "Notion", "order": 4 }
+]

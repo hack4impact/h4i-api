@@ -1,0 +1,106 @@
+/*
+ * H4I theme over Primer (wiki: design system). H4I tokens are set per color mode below, then mapped onto
+ * Primer's functional variables once. Components never hard-code colors, so dark mode is only a token swap.
+ */
+
+/* Light tokens: explicit light mode, and auto mode when the system is light. */
+[data-color-mode='light'],
+[data-color-mode='auto'] {
+  --h4i-bg: #ffffff;
+  --h4i-bg-subtle: #f6f8fa;
+  --h4i-border: #d0d7de;
+  --h4i-border-muted: #d8dee4;
+  --h4i-fg: #171717;
+  --h4i-fg-strong: #172a3a;
+  --h4i-fg-2: #3d444d;
+  --h4i-fg-muted: #59636e;
+  --h4i-link: #001aff;
+  --h4i-primary-bg: #172a3a;
+  --h4i-avatar-bg: #a6edfc;
+  --h4i-avatar-fg: #172a3a;
+  --h4i-mint-bg: #ddf3ea;
+  --h4i-mint-fg: #0b4a3a;
+  --h4i-ok: #1a7f37;
+  --h4i-warn: #bf8700;
+  --h4i-off: #8c8c8c;
+  --h4i-danger: #cf222e;
+  --h4i-note-bg: #fff8c5;
+  --h4i-note-fg: #3b2300;
+  --h4i-dots: rgb(0 26 255 / 0.18);
+  --h4i-logo-filter: none;
+}
+
+/* Dark tokens: explicit dark mode, and auto mode when the system is dark. */
+[data-color-mode='dark'] {
+  --h4i-bg: #0e1621;
+  --h4i-bg-subtle: #152230;
+  --h4i-border: #2b3b4c;
+  --h4i-border-muted: #223142;
+  --h4i-fg: #e6edf3;
+  --h4i-fg-strong: #f0f6fc;
+  --h4i-fg-2: #c3ced8;
+  --h4i-fg-muted: #8b9baa;
+  --h4i-link: #8fa0ff;
+  --h4i-primary-bg: #3347ff;
+  --h4i-avatar-bg: #24425a;
+  --h4i-avatar-fg: #cfe9f5;
+  --h4i-mint-bg: #17352e;
+  --h4i-mint-fg: #7ee2b8;
+  --h4i-ok: #3fb950;
+  --h4i-warn: #d29922;
+  --h4i-off: #6e7681;
+  --h4i-danger: #ff7b72;
+  --h4i-note-bg: #2b2208;
+  --h4i-note-fg: #f2cc60;
+  --h4i-dots: rgb(143 160 255 / 0.18);
+  --h4i-logo-filter: brightness(0) invert(1); /* design guide: solid white logo in dark mode */
+}
+@media (prefers-color-scheme: dark) {
+  [data-color-mode='auto'] {
+    --h4i-bg: #0e1621;
+    --h4i-bg-subtle: #152230;
+    --h4i-border: #2b3b4c;
+    --h4i-border-muted: #223142;
+    --h4i-fg: #e6edf3;
+    --h4i-fg-strong: #f0f6fc;
+    --h4i-fg-2: #c3ced8;
+    --h4i-fg-muted: #8b9baa;
+    --h4i-link: #8fa0ff;
+    --h4i-primary-bg: #3347ff;
+    --h4i-avatar-bg: #24425a;
+    --h4i-avatar-fg: #cfe9f5;
+    --h4i-mint-bg: #17352e;
+    --h4i-mint-fg: #7ee2b8;
+    --h4i-ok: #3fb950;
+    --h4i-warn: #d29922;
+    --h4i-off: #6e7681;
+    --h4i-danger: #ff7b72;
+    --h4i-note-bg: #2b2208;
+    --h4i-note-fg: #f2cc60;
+    --h4i-dots: rgb(143 160 255 / 0.18);
+    --h4i-logo-filter: brightness(0) invert(1); /* design guide: solid white logo in dark mode */
+  }
+}
+
+/* Map onto Primer. Three attributes outrank Primer's own two-attribute theme selectors. */
+[data-color-mode][data-light-theme][data-dark-theme] {
+  --bgColor-default: var(--h4i-bg);
+  --bgColor-muted: var(--h4i-bg-subtle);
+  --borderColor-default: var(--h4i-border);
+  --borderColor-muted: var(--h4i-border-muted);
+  --fgColor-default: var(--h4i-fg);
+  --fgColor-muted: var(--h4i-fg-muted);
+  --fgColor-accent: var(--h4i-link);
+  --focus-outlineColor: var(--h4i-link);
+  --underlineNav-borderColor-active: var(--h4i-link);
+  --button-primary-bgColor-rest: var(--h4i-primary-bg);
+  --button-primary-bgColor-hover: color-mix(in srgb, var(--h4i-primary-bg) 88%, white);
+  --button-primary-bgColor-active: color-mix(in srgb, var(--h4i-primary-bg) 80%, black);
+  --button-primary-borderColor-rest: transparent;
+  /* One family: Hanken Grotesk (design guide). Primer's base styles read --fontStack-system. */
+  --fontStack-system: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --fontStack-sansSerif: var(--fontStack-system);
+  --BaseStyles-fontFamily: var(--fontStack-system);
+  background: var(--h4i-bg);
+  color: var(--h4i-fg);
+}

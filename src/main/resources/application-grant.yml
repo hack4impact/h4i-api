@@ -1,0 +1,9 @@
+# Give someone a role: ./gradlew bootRun --args='--spring.profiles.active=grant --portal.grant.email=… --portal.grant.chapter=umd --portal.grant.role=lead'
+# Roles: lead, co_lead, viewer, national_admin (no chapter needed). Add --portal.grant.first-name/last-name to create a new person.
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  grant:
+    enabled: true

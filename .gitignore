@@ -1,0 +1,59 @@
+
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Kotlin ###
+.kotlin
+
+### Local secrets ###
+.env
+*.env
+*.pem
+*.json.key
+
+### jqwik (local failure replay) ###
+.jqwik-database
+
+### Local credential files (sandbox keys) ###
+secrets/
+
+### Sandbox check fixture (specific to your sandboxes) ###
+sandbox-fixture.yml
+
+# Python caches (code review W1)
+__pycache__/
+*.pyc

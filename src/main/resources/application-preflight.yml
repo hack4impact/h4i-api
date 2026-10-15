@@ -1,0 +1,9 @@
+# Checks a deployment before it goes live, with its real settings, and exits (1 if anything failed). Only reads.
+# ./gradlew bootRun --args='--spring.profiles.active=preflight'  (add --portal.preflight.chapters=umd for the pilot only)
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  preflight:
+    enabled: true

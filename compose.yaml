@@ -1,0 +1,32 @@
+# Local development only. `./gradlew bootRun` starts these and connects the app to `postgres`.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+    ports:
+      - "5432"
+  # Fake national member DB (no real people) for trying the importer. Not the app's database.
+  memberdb:
+    image: postgres:17
+    labels:
+      org.springframework.boot.ignore: "true"
+    environment:
+      POSTGRES_DB: memberdb
+      POSTGRES_USER: memberdb
+      POSTGRES_PASSWORD: memberdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./src/test/resources/memberdb/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./src/test/resources/memberdb/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+  # Catches the portal's email in development (codes, claim links): http://localhost:8026. Not the app's database.
+  mailpit:
+    image: axllent/mailpit:v1.31
+    labels:
+      org.springframework.boot.ignore: "true"
+    ports:
+      - "127.0.0.1:1026:1025"
+      - "127.0.0.1:8026:8025"

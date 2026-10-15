@@ -1,0 +1,41 @@
+# Staging stack for the stage 1 app. Runs on a developer's computer (wiki decision 29); start it with ./up.sh.
+# deploy/staging/.env (gitignored, chmod 600) must define PORTAL_DB_PASSWORD. Build it from the vault with
+# ../fetch-secrets.sh "portal stage 1 staging" .env
+# Its own project name, port and database volume, so it runs beside the full portal's staging.
+name: portal-stage1-staging
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: ${PORTAL_DB_PASSWORD:?set PORTAL_DB_PASSWORD in deploy/staging/.env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "portal", "-d", "portal"]
+      interval: 5s
+      retries: 10
+
+  portal:
+    # CI names the image after the repository.
+    image: ${PORTAL_IMAGE:-ghcr.io/hack4impact/membership-portal-stage-1:main}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/portal
+      SPRING_DATASOURCE_USERNAME: portal
+      SPRING_DATASOURCE_PASSWORD: ${PORTAL_DB_PASSWORD:?set PORTAL_DB_PASSWORD in deploy/staging/.env}
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-http://localhost:8082}
+    # 8082 so it runs beside `./gradlew bootRun` (8080) and the full portal's staging (8081). Localhost only.
+    ports:
+      - "127.0.0.1:${STAGING_PORT:-8082}:8080"
+
+volumes:
+  db-data:

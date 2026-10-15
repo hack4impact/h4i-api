@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: portal
+  flyway:
+    schemas: portal
+  jooq:
+    sql-dialect: postgres
+  mvc:
+    # Errors as RFC 9457 problem details, so the app can show the reason ("already approved").
+    problemdetails:
+      enabled: true
+  modulith:
+    events:
+      jdbc:
+        # The outbox table lives in the portal schema and is created by Flyway (V3), not by Modulith.
+        schema: portal
+        schema-initialization:
+          enabled: false
+      # Retry event listeners that didn't finish (e.g. the app stopped mid-sync) when the app starts.
+      republish-outstanding-events-on-restart: true
+  security:
+    oauth2:
+      client:
+        registration:
+          # Portal sign-in (step 5). Create the client in the h4i-portal Google Cloud project; see wiki step 5.
+          google:
+            client-id: ${PORTAL_GOOGLE_CLIENT_ID:not-configured}
+            client-secret: ${PORTAL_GOOGLE_CLIENT_SECRET:not-configured}
+            scope: openid, email, profile
+  # Locally, `./gradlew bootRun` starts compose.yaml and connects to it. Elsewhere set
+  # SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD.
+
+portal:
+  # Set by CI to the git SHA; "dev" locally.
+  version: ${PORTAL_VERSION:dev}
+  auth:
+    # Only Google accounts from this Workspace domain can sign in (checked on the server, not just hinted).
+    allowed-domain: ${PORTAL_AUTH_ALLOWED_DOMAIN:hack4impact.org}
+  # Chapter registration links are <join-base-url>/<chapter code>, e.g. join.hack4impact.org/umd.
+  join-base-url: ${PORTAL_JOIN_BASE_URL:https://join.hack4impact.org}
+  # Public address of this deployment, for OAuth redirects, emails and links (wiki decision 31).
+  # Staging will probably be https://staging.portal.hack4impact.org; change it here or with PORTAL_BASE_URL only.
+  base-url: ${PORTAL_BASE_URL:http://localhost:8080}
+  mail:
+    # gmail in production (the Gmail API as noreply@, decision 109), smtp for Mailpit (dev: localhost:1026), log in tests.
+    mode: ${PORTAL_MAIL_MODE:log}
+    from: ${PORTAL_MAIL_FROM:noreply@hack4impact.org}
+  # The member database as an integration (wiki: staged-rollout). Pulling and writing are each off unless set; writes
+  # also start in dry run until national turns them on from the National page.
+  member-db:
+    url: ${MEMBER_DB_URL:}
+    username: ${MEMBER_DB_USERNAME:}
+    password: ${MEMBER_DB_PASSWORD:}
+    pull: ${PORTAL_MEMBERDB_PULL:false}
+    write: ${PORTAL_MEMBERDB_WRITE:false}
+  import:
+    member-db:
+      url: ${MEMBER_DB_URL:}
+      username: ${MEMBER_DB_USERNAME:}
+      password: ${MEMBER_DB_PASSWORD:}
+
+server:
+  shutdown: graceful
+  # Behind the Cloudflare Tunnel or a proxy: the visitor's address and scheme come from X-Forwarded-*, trusted only when
+  # the request comes from an internal address (Tomcat's default list), so rate limits and the Google redirect URI see
+  # the real visitor and https (code review H6).
+  forward-headers-strategy: native
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  paths-to-match: /api/**

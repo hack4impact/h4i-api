@@ -1,0 +1,13 @@
+# One-off member-DB import: `./gradlew bootRun --args='--spring.profiles.active=import'`.
+# Without MEMBER_DB_* set, it reads the fake member DB that compose.yaml starts on port 5433.
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  import:
+    enabled: true
+    member-db:
+      url: ${MEMBER_DB_URL:jdbc:postgresql://localhost:5433/memberdb}
+      username: ${MEMBER_DB_USERNAME:memberdb}
+      password: ${MEMBER_DB_PASSWORD:memberdb}
