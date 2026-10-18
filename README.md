@@ -39,6 +39,8 @@ Settled 2026-10-14 (wiki: staged-rollout, decisions 159 and 162):
 
 It uses the same local ports as the full portal (8080, Mailpit on 1026/8026, the fake member DB on 5433), so run one at a time.
 
+How to test it, automated and by hand: [TESTING.md](TESTING.md).
+
 ## Database
 
 `V1__stage1_schema.sql` (schema `portal`) is made from the full portal's V1–V17 with only the tables stage 1 uses; `V2` adds the member database integration (study fields, writes waiting, drift, its switches) and `V3` the registration document (Documenso). Later stages add their tables in new migrations. jOOQ classes are generated from it into `build/generated/jooq` by `./gradlew generateJooq`, which runs automatically before compiling.
