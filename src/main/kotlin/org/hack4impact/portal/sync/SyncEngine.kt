@@ -76,6 +76,7 @@ class SyncEngine(
 	private val applier: SyncApplier,
 	private val queue: AdminQueue,
 	private val existing: ExistingResources,
+	private val scope: SyncScope,
 	private val transactions: TransactionTemplate,
 	private val locks: RunLocks,
 	private val tools: org.hack4impact.portal.tools.ToolRegistry,
@@ -234,9 +235,7 @@ class SyncEngine(
 		val existingNow = wanted.mapNotNull { (id, name) -> ExistingResources.find(adapter.tool, name, listing)?.let { id to it } }
 		existingNow.forEach { (id, found) -> existing.record(adapter.tool, id, wanted.first { it.first == id }.second, found.externalId) }
 		val toCreate = wanted.map { it.first } - existingNow.map { it.first }.toSet()
-		val untouched = dsl.select(RESOURCE.ID).from(RESOURCE)
-			.where(RESOURCE.TOOL.eq(tool), RESOURCE.MANAGED.eq("unmanaged").or(RESOURCE.EXISTS_IN_TOOL_AT.isNotNull.and(RESOURCE.EXTERNAL_ID.isNull)))
-			.fetch(RESOURCE.ID).filterNotNull().toSet()
+		val untouched = scope.untouched(tool)
 		// PRD: closing a project archives its channels (registry: archiveOnClose); teams, groups and collections are only
 		// emptied. Only channels the portal created: a channel national linked was there before and stays (decision 170).
 		val toArchive = if (!tools[adapter.tool].archiveOnClose) emptyList() else dsl.select(RESOURCE.ID).from(RESOURCE)

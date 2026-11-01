@@ -88,7 +88,11 @@ class PartnerController(private val viewers: Viewers, private val dsl: DSLContex
 	fun add(@AuthenticationPrincipal user: OidcUser, @RequestBody input: PartnerInput): PartnerOption {
 		val viewer = viewers.of(user).also { if (!it.nationalAdmin) throw AccessDeniedException("National admins only") }
 		val name = input.name.trim().ifEmpty { throw ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "A partner needs a name") }
-		if (dsl.fetchExists(PARTNER, DSL.lower(PARTNER.NAME).eq(name.lowercase()))) throw ResponseStatusException(HttpStatus.CONFLICT, "There's already a partner called $name")
+		dsl.select(PARTNER.DELETED_AT).from(PARTNER).where(DSL.lower(PARTNER.NAME).eq(name.lowercase())).fetchOne()?.let { existing ->
+			// Deleted in the member database, which the pull follows: restoring it here would be undone at the next pull (package 5 review R3).
+			if (existing.value1() != null) throw ResponseStatusException(HttpStatus.CONFLICT, "$name was deleted in the member database. Restore it there, and the next pull brings it back")
+			throw ResponseStatusException(HttpStatus.CONFLICT, "There's already a partner called $name")
+		}
 		val id = dsl.insertInto(PARTNER).set(PARTNER.NAME, name).set(PARTNER.WEBSITE, input.website?.trim()?.ifEmpty { null })
 			.returningResult(PARTNER.ID).fetchSingle().value1()!!
 		audit(viewer, id, name)

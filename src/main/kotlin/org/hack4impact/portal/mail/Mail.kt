@@ -177,6 +177,21 @@ object Emails {
 		},
 	)
 
+	/** Stage 2: a project agreement still unsigned after a week, to the project's leads (else the chapter's). */
+	fun agreementOverdue(lead: String, person: String, project: String, days: Long) = Email(
+		"agreement_overdue", "$person hasn't signed the $project agreement",
+		"Hi $lead,\n\n$person was sent the project agreement for $project $days days ago and hasn't signed it yet. " +
+			"Documenso has reminded them; until they sign, they won't get the project's GitHub team or vault collection.\n\n" +
+			"You may want to check in with them.",
+	)
+
+	/** Stage 2: a project agreement declined, with the reason given. It isn't sent again unless they're removed and added back. */
+	fun agreementDeclined(lead: String, person: String, project: String, reason: String?) = Email(
+		"agreement_declined", "$person declined the $project agreement",
+		"Hi $lead,\n\n$person declined the project agreement for $project" + (reason?.let { ":\n\n  $it\n\n" } ?: ".\n\n") +
+			"They won't get the project's GitHub team or vault collection. Talk with them, or remove them from the project.",
+	)
+
 	fun declined(name: String, chapter: String, reason: String) = Email(
 		"declined", "Your application to $chapter",
 		"Hi $name,\n\n$chapter didn't approve your application this time. The chapter's reason:\n\n$reason\n\nQuestions go to the chapter's leads.",

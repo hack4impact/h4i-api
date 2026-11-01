@@ -41,7 +41,7 @@ import java.util.UUID
 
 data class AgreementTemplateView(
 	val id: UUID,
-	/** volunteer or code_of_conduct (signed during registration). */
+	/** volunteer, code_of_conduct (signed during registration) or project (stage 2). */
 	val kind: String,
 	val name: String,
 	/** The template envelope's ID in Documenso. */
@@ -121,7 +121,7 @@ class AgreementTemplateController(
 	@Transactional
 	fun add(@AuthenticationPrincipal user: OidcUser, @RequestBody input: AgreementTemplateInput): AgreementTemplates {
 		val viewer = national(user)
-		if (input.kind !in AgreementService.REGISTRATION_KINDS) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Kind is volunteer or code_of_conduct")
+		if (input.kind !in AgreementService.REGISTRATION_KINDS + "project") throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Kind is volunteer, code_of_conduct or project")
 		if (input.name.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Give it a name people will recognize, e.g. “Volunteer agreement”")
 		// An ID, or a link to the template: Documenso's envelope IDs look like envelope_…
 		val id = Regex("envelope_[A-Za-z0-9]+").find(input.documensoTemplateId)?.value ?: input.documensoTemplateId.trim().trimEnd('/').substringAfterLast('/')

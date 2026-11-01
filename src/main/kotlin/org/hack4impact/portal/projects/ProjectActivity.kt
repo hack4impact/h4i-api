@@ -1,5 +1,6 @@
 package org.hack4impact.portal.projects
 
+import org.hack4impact.portal.db.tables.references.AGREEMENT
 import org.hack4impact.portal.db.tables.references.AUDIT_EVENT
 import org.hack4impact.portal.db.tables.references.PERSON
 import org.hack4impact.portal.db.tables.references.PROJECT_RESOURCE
@@ -16,7 +17,7 @@ import java.util.UUID
 /** One line in a project's activity feed. */
 data class ActivityItem(
 	val at: OffsetDateTime,
-	/** change (someone edited the project) or sync (the tools were changed); agreements (signed or declined) come with package 6. */
+	/** change (someone edited the project), sync (the tools were changed), agreement (signed or declined). */
 	val kind: String,
 	val text: String,
 	/** Who did it; null for the sync and for people's own signatures. */
@@ -29,8 +30,8 @@ data class ActivityItem(
 data class ActivityPage(val items: List<ActivityItem>, val more: Boolean)
 
 /**
- * A project's activity: its edits (audit log, quick repeats by one person merged) and what the sync did to its
- * resources, newest first. From the full portal's; its signed and declined agreements come with stage 2's package 6.
+ * A project's activity: its edits (audit log, quick repeats by one person merged), what the sync did to its resources,
+ * and agreements signed or declined. Newest first. From the full portal's.
  */
 @Component
 class ProjectActivity(private val dsl: DSLContext, private val tools: org.hack4impact.portal.tools.ToolRegistry) {
@@ -45,7 +46,7 @@ class ProjectActivity(private val dsl: DSLContext, private val tools: org.hack4i
 
 	fun page(projectId: UUID, before: OffsetDateTime?, limit: Int): ActivityPage {
 		val n = limit.coerceIn(1, 100)
-		val all = (edits(projectId, before, n * 4) + syncs(projectId, before, n * 4))
+		val all = (edits(projectId, before, n * 4) + syncs(projectId, before, n * 4) + agreements(projectId, before, n * 2))
 			.sortedByDescending { it.at }
 		return ActivityPage(all.take(n), all.size > n)
 	}
@@ -126,4 +127,18 @@ class ProjectActivity(private val dsl: DSLContext, private val tools: org.hack4i
 
 	/** Slack channels with a #, the rest by name. */
 	private fun label(tool: String, name: String) = tools.displayName(tool, name)
+
+	private fun agreements(projectId: UUID, before: OffsetDateTime?, limit: Int): List<ActivityItem> =
+		dsl.select(AGREEMENT.STATUS, AGREEMENT.SIGNED_AT, AGREEMENT.UPDATED_AT, AGREEMENT.DECLINE_REASON, PERSON.FIRST_NAME, PERSON.LAST_NAME, PERSON.PREFERRED_NAME)
+			.from(AGREEMENT).join(PERSON).on(PERSON.ID.eq(AGREEMENT.PERSON_ID))
+			.where(AGREEMENT.PROJECT_ID.eq(projectId), AGREEMENT.STATUS.`in`("signed", "declined"))
+			.orderBy(AGREEMENT.UPDATED_AT.desc()).limit(limit)
+			.fetch()
+			.mapNotNull { r ->
+				val at = (if (r.value1() == "signed") r.value2() else null) ?: r.value3()!!
+				if (before != null && !at.isBefore(before)) return@mapNotNull null
+				val who = ProjectQueries.name(r.value7(), r.value5()!!, r.value6()!!)
+				if (r.value1() == "signed") ActivityItem(at, "agreement", "$who signed the project agreement", null)
+				else ActivityItem(at, "agreement", "$who declined the project agreement", null, listOfNotNull(r.value4()))
+			}
 }

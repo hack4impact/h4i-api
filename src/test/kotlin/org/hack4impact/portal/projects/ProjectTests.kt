@@ -58,6 +58,8 @@ class ProjectTests(
 	@Autowired private val engine: SyncEngine,
 	@Autowired private val slack: InMemoryReadAdapter,
 	@Autowired private val github: InMemoryReadAdapter,
+	@Autowired private val summaries: AccessSummaries,
+	@Autowired private val transactionManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
 	private val json = JsonMapper.builder().build()
 	private lateinit var umd: UUID
@@ -383,4 +385,82 @@ class ProjectTests(
 		assertEquals(0, dsl.fetchCount(PROJECT))
 		assertEquals(0, dsl.fetchCount(SYNC_RUN))
 	}
+
+	// Package 5 review fixes ------------------------------------------------------------------------------------------
+
+	@Test
+	fun `nobody is promised access the sync won't give (review R2)`() {
+		val created = create()
+		val slackId = UUID.fromString(resource(created, "slack").path("resourceId").asString())
+		dsl.update(RESOURCE).set(RESOURCE.MANAGED, "unmanaged").where(RESOURCE.ID.eq(slackId)).execute() // national left the channel alone
+		send("POST", "/api/chapters/umd/projects/rise-dc/status", """{"status":"active"}""").andExpect { status { isOk() } }
+		member(ada).andExpect { status { isOk() } }
+		waitForOutbox()
+
+		// The summary's snapshot: not the unmanaged channel, nor the Google group (no Google adapter in these tests).
+		val adaGets = summaries.snapshot().grants.keys.filter { it.first == ada }.map { it.second }.toSet()
+		val google = UUID.fromString(resource(created, "google").path("resourceId").asString())
+		assertTrue(slackId !in adaGets && google !in adaGets, adaGets.toString())
+		send("GET", "/api/me/home", as_ = "ada@hack4impact.org").andExpect {
+			jsonPath("$.access[?(@.tool == 'slack')]") { isEmpty() }
+			jsonPath("$.access[?(@.tool == 'google')].state") { value("not_connected") }
+		}
+	}
+
+	@Test
+	fun `a partner deleted after it was picked blocks only starting, and national is told why it can't add it (review R3)`() {
+		create()
+		dsl.update(PARTNER).set(PARTNER.DELETED_AT, java.time.OffsetDateTime.now()).where(PARTNER.ID.eq(rise)).execute()
+		send("PUT", "/api/chapters/umd/projects/rise-dc", """{"name":"RISE DC 2","termId":"$fall","partnerId":"$rise"}""").andExpect { status { isOk() } } // unchanged partner
+		send("POST", "/api/chapters/umd/projects/rise-dc/status", """{"status":"active"}""").andExpect {
+			status { isUnprocessableContent() }
+			jsonPath("$.detail") { value(org.hamcrest.Matchers.containsString("was deleted in the member database")) }
+		}
+		send("POST", "/api/national/partners", """{"name":"rise dc inc"}""", as_ = "nora@hack4impact.org").andExpect {
+			status { isConflict() }
+			jsonPath("$.detail") { value(org.hamcrest.Matchers.containsString("Restore it there")) }
+		}
+		waitForOutbox()
+	}
+
+	@Test
+	fun `detaching a resource that waits for national closes its task (review R4)`() {
+		val created = create()
+		val slackId = UUID.fromString(resource(created, "slack").path("resourceId").asString())
+		dsl.update(RESOURCE).set(RESOURCE.EXISTS_IN_TOOL_AT, java.time.OffsetDateTime.now()).where(RESOURCE.ID.eq(slackId)).execute()
+		dsl.insertInto(org.hack4impact.portal.db.tables.references.ADMIN_TASK).set(org.hack4impact.portal.db.tables.references.ADMIN_TASK.TOOL, "slack")
+			.set(org.hack4impact.portal.db.tables.references.ADMIN_TASK.ACTION, "resource_exists").set(org.hack4impact.portal.db.tables.references.ADMIN_TASK.RESOURCE_ID, slackId)
+			.set(org.hack4impact.portal.db.tables.references.ADMIN_TASK.DESCRIPTION, "umd-rise-dc already exists in Slack").execute()
+		send("DELETE", "/api/chapters/umd/projects/rise-dc/resources/$slackId").andExpect { status { isOk() } }
+		assertEquals("done", dsl.select(org.hack4impact.portal.db.tables.references.ADMIN_TASK.STATUS).from(org.hack4impact.portal.db.tables.references.ADMIN_TASK).fetchSingle().value1())
+		waitForOutbox()
+	}
+
+	@Test
+	fun `only the project's team is emailed, whatever else changed meanwhile (review R5)`() {
+		val project = UUID.fromString(create().path("id").asString())
+		val channel = UUID.randomUUID()
+		val before = AccessSummaries.Snapshot(emptyMap(), emptySet(), emptySet())
+		// Between the snapshots: Ada joined this project; Bo gained something elsewhere (another lead's change).
+		val after = AccessSummaries.Snapshot(mapOf((bo to channel) to org.hack4impact.portal.resolver.Access.WRITE), emptySet(), setOf(ada to project))
+		val sent = transactionsDo { summaries.send(before, after, project) }
+		assertEquals(1, sent)
+		assertEquals(0, dsl.fetchCount(EMAIL_MESSAGE, EMAIL_MESSAGE.TO_ADDRESS.eq("bo@hack4impact.org")))
+	}
+
+	@Test
+	fun `access waiting on the agreement shows the level the project gives (review R7)`() {
+		val created = create()
+		send("POST", "/api/chapters/umd/projects/rise-dc/status", """{"status":"active"}""").andExpect { status { isOk() } }
+		val github = resource(created, "github").path("resourceId").asString()
+		send("PUT", "/api/chapters/umd/projects/rise-dc/resources/$github", """{"audience":"team","access":"admin","requiresAgreement":true}""").andExpect { status { isOk() } }
+		member(ada).andExpect { status { isOk() } }
+		send("GET", "/api/me/home", as_ = "ada@hack4impact.org").andExpect {
+			jsonPath("$.access[?(@.tool == 'github')].state") { value("after_agreement") }
+			jsonPath("$.access[?(@.tool == 'github')].access") { value("admin") }
+		}
+		waitForOutbox()
+	}
+
+	private fun <T> transactionsDo(block: () -> T): T = org.springframework.transaction.support.TransactionTemplate(transactionManager).execute { block() }!!
 }

@@ -34,7 +34,13 @@ import java.util.UUID
  * the day it starts), every team member has a role, and partners are picked, never typed in.
  */
 @Component
-class ProjectService(private val dsl: DSLContext, private val tools: ToolRegistry, private val past: PastProjects) {
+class ProjectService(
+	private val dsl: DSLContext,
+	private val tools: ToolRegistry,
+	private val past: PastProjects,
+	private val agreements: org.hack4impact.portal.agreements.AgreementRequests,
+	private val queue: org.hack4impact.portal.national.AdminQueue,
+) {
 	private val json = JsonMapper.builder().build()
 
 	/** A resource name as the tool will need it: Slack, GitHub and Google names lose a leading # and are lowercase (registry). */
@@ -98,7 +104,8 @@ class ProjectService(private val dsl: DSLContext, private val tools: ToolRegistr
 		val name = input.name.trim().ifEmpty { bad("A project needs a name") }
 		checkTerm(chapterId, input.termId)
 		checkDates(input)
-		checkPartner(input.partnerId)
+		// Only a newly picked partner is checked: one deleted since it was picked mustn't block unrelated edits (package 5 review R3).
+		if (input.partnerId != project.partnerId) checkPartner(input.partnerId)
 		if (project.status != "draft" && project.partnerId != null && input.partnerId == null) unprocessable("A started project needs its partner")
 		// A past project is linked, changed or unlinked only while the project is a draft: once started it's been written.
 		val linked = if (project.memberDbLinked == true) project.memberDbProjectId else null
@@ -123,10 +130,15 @@ class ProjectService(private val dsl: DSLContext, private val tools: ToolRegistr
 		if (to !in TRANSITIONS.getValue(from)) conflict("A $from project can't become $to")
 		// The member database's engagement needs a partner and a start date (wiki: staged-rollout-stage-2).
 		if (to == "active" && project.partnerId == null) unprocessable("Choose the project's partner before starting it")
+		// A first start writes the engagement (package 7): not for a partner deleted since it was picked (package 5 review R3).
+		if (from == "draft" && to == "active" && !dsl.fetchExists(PARTNER, PARTNER.ID.eq(project.partnerId), PARTNER.DELETED_AT.isNull)) {
+			unprocessable("The project's partner was deleted in the member database: pick another before starting it")
+		}
 		dsl.update(PROJECT).set(PROJECT.STATUS, to).set(PROJECT.CLOSED_AT, if (to == "closed") OffsetDateTime.now() else null)
 			.apply { if (to == "active" && project.startsOn == null) set(PROJECT.STARTS_ON, LocalDate.now()) }
 			.where(PROJECT.ID.eq(project.id)).execute()
 		audit(viewer, chapterId, project.id!!, "project.status", "Changed status from $from to $to")
+		if (to == "active") agreements.request(project.id!!) // members added while it was a draft get theirs now
 	}
 
 	@Transactional
@@ -145,6 +157,7 @@ class ProjectService(private val dsl: DSLContext, private val tools: ToolRegistr
 			.set(PROJECT_MEMBER.PROJECT_ROLE_ID, role).set(PROJECT_MEMBER.ADDED_BY, viewer.personId).execute()
 		touch(project)
 		audit(viewer, chapterId, project.id!!, "project.member_add", "Added ${ProjectQueries.name(person.value3(), person.value1()!!, person.value2()!!)}")
+		agreements.request(project.id!!) // PRD: the project agreement is sent on assignment (a live project only)
 	}
 
 	@Transactional
@@ -219,7 +232,9 @@ class ProjectService(private val dsl: DSLContext, private val tools: ToolRegistr
 		// A resource that was never created in its tool and nothing else uses is dropped (archived), not left behind.
 		val unused = !dsl.fetchExists(PROJECT_RESOURCE, PROJECT_RESOURCE.RESOURCE_ID.eq(resourceId)) &&
 			!dsl.fetchExists(CHAPTER_RESOURCE, CHAPTER_RESOURCE.RESOURCE_ID.eq(resourceId))
-		if (unused) dsl.update(RESOURCE).set(RESOURCE.ARCHIVED_AT, OffsetDateTime.now()).where(RESOURCE.ID.eq(resourceId), RESOURCE.EXTERNAL_ID.isNull).execute()
+		val dropped = unused && dsl.update(RESOURCE).set(RESOURCE.ARCHIVED_AT, OffsetDateTime.now()).where(RESOURCE.ID.eq(resourceId), RESOURCE.EXTERNAL_ID.isNull).execute() > 0
+		// Nothing left for national to decide about it, and the queue can't close the task itself (package 5 review R4).
+		if (dropped) queue.resourceDecided(resourceId, viewer)
 		touch(project)
 		audit(viewer, chapterId, project.id!!, "project.resource_detach", "Detached $name")
 	}

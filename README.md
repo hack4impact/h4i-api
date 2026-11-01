@@ -20,7 +20,7 @@ Since 2026-10-31 this app has no UI: it's the backend the H4I portal's own front
 
 - **Docs:** [docs/API.md](docs/API.md), every endpoint with its access rules, errors, side effects and flows; [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md), running it next to the frontend.
 - **Contract:** [openapi.json](openapi.json), checked against the live API by `OpenApiSpecTests` (regenerate with `./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec`). Generate the frontend's client from it.
-- **The frontend must serve** `/apply` (also `?github=failed` and `?signed=<kind>`), `/claim/<token>`, `/join/<chapter>?invite=<token>`, `/projects/<chapter>/<slug>` (stage 2), and `/` (also `?signin=denied`), at `PORTAL_FRONTEND_URL`: email links and redirects point there.
+- **The frontend must serve** `/apply` (also `?github=failed` and `?signed=<kind>`), `/claim/<token>`, `/join/<chapter>?invite=<token>`, `/projects/<chapter>/<slug>` and `/agreements/<id>` (stage 2), and `/` (also `?signin=denied`), at `PORTAL_FRONTEND_URL`: email links and redirects point there.
 - **Sign-in is cookies:** the Google session (`JSESSIONID`), the applicant session (`h4i_applicant`, path `/api/apply`) and the CSRF token (`XSRF-TOKEN`, sent back as `X-XSRF-TOKEN` on writes). They work when the frontend and this API share one site, e.g. the frontend's server proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` here. There's no CORS set up for calls from another origin.
 
 ## The member database

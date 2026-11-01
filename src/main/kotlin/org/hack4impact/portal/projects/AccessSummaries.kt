@@ -29,13 +29,18 @@ class AccessSummaries(
 	private val worlds: WorldLoader,
 	private val tools: ToolRegistry,
 	private val mailer: Mailer,
+	private val scope: org.hack4impact.portal.sync.SyncScope,
 	@Value("\${portal.frontend-url}") private val frontendUrl: String,
 ) {
 	/** Who gets what, who waits on an agreement, and who's on which project (not closed). */
 	data class Snapshot(val grants: Map<Pair<UUID, UUID>, Access>, val awaiting: Set<Pair<UUID, UUID>>, val members: Set<Pair<UUID, UUID>>)
 
+	/** Only what the sync will act on (package 5 review R2): not resources it leaves alone, nor tools this deployment doesn't sync. */
 	fun snapshot(): Snapshot {
-		val resolution = Resolver.resolve(worlds.load().world)
+		val world = worlds.load().world
+		val untouched = scope.untouched()
+		val synced = world.resources.filter { it.id !in untouched && scope.connected(it.tool.name) }.map { it.id }.toSet()
+		val resolution = Resolver.resolve(world).let { r -> r.copy(grants = r.grants.filter { it.resourceId in synced }, withheld = r.withheld.filter { it.resourceId in synced }) }
 		val members = dsl.select(PROJECT_MEMBER.PERSON_ID, PROJECT_MEMBER.PROJECT_ID).from(PROJECT_MEMBER).join(PROJECT).on(PROJECT.ID.eq(PROJECT_MEMBER.PROJECT_ID))
 			.where(PROJECT_MEMBER.REMOVED_AT.isNull, PROJECT.STATUS.ne("closed")).fetch().map { it.value1()!! to it.value2()!! }.toSet()
 		return Snapshot(
@@ -45,14 +50,20 @@ class AccessSummaries(
 		)
 	}
 
-	/** Emails each person [before] → [after] changed, about [projectId]'s chapter; sent once the transaction commits. Returns how many. */
+	/**
+	 * Emails each of [projectId]'s team, before or after the change, whose projects or access [before] → [after] changed;
+	 * sent once the transaction commits. Returns how many. Only the team: a change to one project changes only their
+	 * access, and anything else that committed between the two snapshots stays out (package 5 review R5).
+	 */
 	fun send(before: Snapshot, after: Snapshot, projectId: UUID): Int {
-		val added = after.grants.keys - before.grants.keys
-		val removed = before.grants.keys - after.grants.keys
-		val changed = after.grants.keys.intersect(before.grants.keys).filter { after.grants[it] != before.grants[it] }
-		val waiting = after.awaiting - before.awaiting - added
-		val joins = after.members - before.members
-		val leaves = before.members - after.members
+		val team = (before.members + after.members).filter { it.second == projectId }.map { it.first }.toSet()
+		fun ofTeam(keys: Collection<Pair<UUID, UUID>>) = keys.filter { it.first in team }.toSet()
+		val added = ofTeam(after.grants.keys - before.grants.keys)
+		val removed = ofTeam(before.grants.keys - after.grants.keys)
+		val changed = ofTeam(after.grants.keys.intersect(before.grants.keys).filter { after.grants[it] != before.grants[it] })
+		val waiting = ofTeam(after.awaiting - before.awaiting) - added
+		val joins = ofTeam(after.members - before.members)
+		val leaves = ofTeam(before.members - after.members)
 		val people = (added + removed + changed + waiting + joins + leaves).map { it.first }.toSet()
 		if (people.isEmpty()) return 0
 

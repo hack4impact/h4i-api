@@ -747,6 +747,39 @@
         },
         "type" : "object"
       },
+      "MemberAgreement" : {
+        "properties" : {
+          "declineReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "error" : {
+            "type" : [ "string", "null" ]
+          },
+          "hasPdf" : {
+            "type" : "boolean"
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "reminders" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sentAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "signedAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "MemberDbChange" : {
         "properties" : {
           "dryRun" : {
@@ -1032,6 +1065,9 @@
       },
       "MyAgreement" : {
         "properties" : {
+          "canSign" : {
+            "type" : "boolean"
+          },
           "hasPdf" : {
             "type" : "boolean"
           },
@@ -1041,6 +1077,9 @@
           },
           "name" : {
             "type" : "string"
+          },
+          "project" : {
+            "type" : [ "string", "null" ]
           },
           "signedAt" : {
             "format" : "date-time",
@@ -1343,6 +1382,13 @@
       },
       "ProjectMemberRow" : {
         "properties" : {
+          "agreement" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/MemberAgreement"
+            }, {
+              "type" : "null"
+            } ]
+          },
           "agreementStatus" : {
             "type" : "string"
           },
@@ -1835,6 +1881,14 @@
               "type" : "string"
             },
             "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "SignLink" : {
+        "properties" : {
+          "url" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -3383,6 +3437,33 @@
           }
         },
         "tags" : [ "chapter-controller" ]
+      }
+    },
+    "/api/me/agreements/{id}/sign" : {
+      "post" : {
+        "operationId" : "sign",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SignLink"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "member-home-controller" ]
       }
     },
     "/api/me/home" : {

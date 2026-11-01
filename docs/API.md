@@ -176,6 +176,7 @@ The API sends people to these addresses on `PORTAL_FRONTEND_URL`, in emails and 
 | `/apply` | Applicants with a session | After verifying, opening a link, GitHub and Documenso | The applicant's form: `GET /api/apply/me` |
 | `/apply?github=failed` | Applicants | GitHub sign-in failed or was cancelled | Show "GitHub sign-in didn't work, try again" |
 | `/apply?signed=<kind>` | Applicants | Back from signing in Documenso (`kind` = `volunteer` or `code_of_conduct`) | Reload `GET /api/apply/me`; the agreement may show `sent` for a few seconds until Documenso's webhook arrives |
+| `/agreements/<id>` | Members | *Stage 2.* Back from signing the project agreement in Documenso | Say it's signed; their page (`GET /api/me/home`) shows `signed` once Documenso's webhook arrives, usually within seconds. To sign one still open: `POST /api/me/agreements/<id>/sign` |
 | `/projects/<chapter>/<slug>` | Members, leads | *Stage 2.* The "Your projects and access" email after a project change | The project: `GET /api/chapters/<chapter>/projects/<slug>` for its leads and the chapter's roles; for a member without either (`403`), their own page (`GET /api/me/home`) |
 
 ## 5. Flows, step by step
@@ -270,8 +271,13 @@ Any signed-in member. Their own page: status, chapters, accounts and signed docu
 
 - `agreements[].hasPdf`: the signed copy can be downloaded at `GET /api/agreements/{id}/pdf`.
 - `projects[]` (stage 2): `{"chapterCode", "chapter", "slug", "name", "status", "role", "leads", "agreementStatus", "canOpen"}`, projects that aren't closed. `canOpen`: they lead it or have a role in its chapter, so `GET …/projects/{slug}` works for them.
-- `access[]` (stage 2): `{"tool", "name", "url", "state", "access", "reasons"}`. `state`: `ready`, `invited` (accept the tool's invite), `setting_up`, `after_agreement` (sign the project agreement first). `reasons` in words: "On RISE DC", "Member of UMD", "Lead of UMD".
+- `agreements[]` gain `project` (the project's name, for a project agreement) and `canSign` (stage 2).
+- `access[]` (stage 2): `{"tool", "name", "url", "state", "access", "reasons"}`. `state`: `ready`, `invited` (accept the tool's invite), `setting_up`, `after_agreement` (sign the project agreement first), `not_connected` (this portal doesn't sync that tool yet). Resources the portal leaves alone (unmanaged, or waiting for national) aren't listed. `reasons` in words: "On RISE DC", "Member of UMD", "Lead of UMD".
 - Errors: `401`; `404` "Your Google account isn't linked to a member yet".
+
+#### `POST /api/me/agreements/{id}/sign`
+
+*Stage 2.* A fresh Documenso signing link for one of their own unsigned agreements → `{"url"}`; send them there. Documenso brings them back to `/agreements/<id>`. `404` "No such agreement of yours"; `409` when Documenso can't give a link now (signed already, or not connected): "use the link in your email".
 
 #### `GET /api/tools`
 
@@ -420,19 +426,19 @@ Returns `RosterResult`:
 Projects, their teams and resources. Reading a project needs a role in its chapter, or leading it (a lead project role); changing it needs lead, co-lead or national; a project's own leads change its team, and nothing else (decision 133). Every change answers with the updated `ProjectDetail`, asks for a sync in the same transaction (the tools follow once it commits), and emails everyone whose projects or access it changed one summary ("Your UMD projects and access", linking to `/projects/<chapter>/<slug>`). A closed project can't change (`409` "This project is closed").
 
 - **`GET /api/project-roles`** (signed in) → `[{"id", "name", "isLead"}]`, leads first. Role names are the member database's; the frontend chooses labels.
-- **`GET /api/partners`** (leads) → `[{"id", "name", "website"}]`. A missing one is added by national: **`POST /api/national/partners`** `{"name", "website"?}` → the partner; `409` a name that exists in any case; `422` a blank name.
+- **`GET /api/partners`** (leads) → `[{"id", "name", "website"}]`. A missing one is added by national: **`POST /api/national/partners`** `{"name", "website"?}` → the partner; `409` a name that exists in any case, or one deleted in the member database ("Restore it there…", since the pull follows the member database); `422` a blank name.
 - **`GET /api/chapters/{code}/terms`** (lead) → `[{"id", "label"}]`, the school's semesters, newest first.
 - **`GET /api/chapters/{code}/past-projects`** (lead) → `[{"id", "name"}]`: the member database's projects with no engagement, read live, that no portal project links yet. `503` when the member database isn't connected or can't be reached.
 - **`GET /api/chapters/{code}/resources`** (lead) → `[{"id", "tool", "name", "state", "projects"}]`, to attach one to another project.
 - **`GET /api/chapters/{code}/projects`** (any role) → `ProjectSummary[]`: `{"id", "name", "slug", "status", "type", "tags", "term", "partner", "members", "resources", "updatedAt"}`, active first.
 - **`POST /api/chapters/{code}/projects`** (lead) with `{"name", "slug"?, "type"?, "tags"?, "termId"?, "partnerId"?, "pastProjectId"?, "startsOn"?, "endsOn"?}` → `201` `ProjectDetail`, a `draft` with the standard resources (Slack channel and Google group for the team; GitHub team and Vaultwarden collection after the project agreement). `409` the short name is taken; `422` an unknown or deleted `partnerId`, or a `pastProjectId` that has an engagement, isn't in the member database or is linked already; `400` other bad fields.
-- **`GET /api/chapters/{code}/projects/{slug}`** (a role in the chapter, or a project lead of it) → `ProjectDetail`: the fields above plus `partnerId`, `pastProjectId`, `startsOn`, `endsOn`, `members[]` (`{"personId", "name", "email", "status", "roleId", "role", "isLead", "agreementStatus"}`), `resources[]` (`{"resourceId", "tool", "name", "state", "managed", "audience", "roleId", "role", "access", "requiresAgreement", "tags", "sharedWith", "existsInTool", "getting", "awaitingAgreement", "url", "sync"}`), `agreementsSigned`, `preview` (a draft as if active), `planned` (the latest runs' changes for its resources, as in `ChapterSync`), `lastDryRunAt`, `plannedOutOfDate`, `activity`, `activityMore`, `canEdit`, `canEditTeam`.
+- **`GET /api/chapters/{code}/projects/{slug}`** (a role in the chapter, or a project lead of it) → `ProjectDetail`: the fields above plus `partnerId`, `pastProjectId`, `startsOn`, `endsOn`, `members[]` (`{"personId", "name", "email", "status", "roleId", "role", "isLead", "agreementStatus", "agreement"}`; `agreement` is their latest project agreement, `{"id", "status", "sentAt", "signedAt", "reminders", "hasPdf", "error", "declineReason"}`, or null), `resources[]` (`{"resourceId", "tool", "name", "state", "managed", "audience", "roleId", "role", "access", "requiresAgreement", "tags", "sharedWith", "existsInTool", "getting", "awaitingAgreement", "url", "sync"}`), `agreementsSigned`, `preview` (a draft as if active), `planned` (the latest runs' changes for its resources, as in `ChapterSync`), `lastDryRunAt`, `plannedOutOfDate`, `activity`, `activityMore`, `canEdit`, `canEditTeam`.
 - **`PUT /api/chapters/{code}/projects/{slug}`** (lead), the create body without `slug`. `pastProjectId` changes only while a draft (`422` after); a started project keeps a partner (`422`).
-- **`POST /api/chapters/{code}/projects/{slug}/status`** (lead) `{"status": "active" | "paused" | "closed"}`. Starting needs a partner (`422` "Choose the project's partner before starting it") and sets `startsOn` to today if empty. `409` a move that isn't allowed (draft → active or closed; active ↔ paused; either → closed).
+- **`POST /api/chapters/{code}/projects/{slug}/status`** (lead) `{"status": "active" | "paused" | "closed"}`. Starting needs a partner (`422` "Choose the project's partner before starting it"), one not deleted in the member database since it was picked (`422`), and sets `startsOn` to today if empty. An edit checks the partner only when it changes. `409` a move that isn't allowed (draft → active or closed; active ↔ paused; either → closed).
 - **`GET …/projects/{slug}/candidates`** (lead, project lead) → `[{"personId", "name", "status"}]`: the chapter's active members and alumni not on the team.
-- **`POST …/projects/{slug}/members`** (lead, project lead) `{"personId", "roleId"}`; **`PUT …/members/{personId}`** `{"roleId"}`; **`DELETE …/members/{personId}`**. `roleId` is required (`400` "Choose the person's project role"); `400` someone not in the chapter, or not active or alumni; `409` already on it; `404` not on it.
+- **`POST …/projects/{slug}/members`** (lead, project lead) `{"personId", "roleId"}` (on a live project, the project agreement goes out; the GitHub team and vault collection wait for the signature); **`PUT …/members/{personId}`** `{"roleId"}`; **`DELETE …/members/{personId}`**. `roleId` is required (`400` "Choose the person's project role"); `400` someone not in the chapter, or not active or alumni; `409` already on it; `404` not on it.
 - **`POST …/projects/{slug}/resources`** (lead) `{"resourceId"}` to share one of the chapter's, or `{"tool", "name"}` for a new one, plus `audience` (`team`, `role` with `roleId`, `leads`), `access` (`read`, `write`, `admin`), `requiresAgreement`, `tags`. **`PUT …/resources/{resourceId}`** changes who gets it; **`DELETE …/resources/{resourceId}`** detaches it (one never created and used by nothing else is dropped). `400` a tool the portal doesn't create resources in, or a name the tool doesn't allow; `409` already attached, or the chapter has that name already.
-- **`GET …/projects/{slug}/activity?before=&limit=20`** (as reading) → `{"items": [{"at", "kind", "text", "actor", "details"}], "more"}`, newest first. `kind`: `change` or `sync`.
+- **`GET …/projects/{slug}/activity?before=&limit=20`** (as reading) → `{"items": [{"at", "kind", "text", "actor", "details"}], "more"}`, newest first. `kind`: `change`, `sync` or `agreement` (signed or declined).
 - **`GET /api/chapters/{code}/members/{personId}/access`** (lead) → the member's `access[]` (as on `/api/me/home`) for this chapter's resources. `404` not a member of the chapter.
 
 #### `GET /api/chapters/{code}/sync` (lead)
@@ -538,14 +544,14 @@ The integration with the national member database: pulls on a schedule, writes b
 
 #### Agreement templates
 
-The Documenso templates registration agreements are made from: one active template per kind, and a new one becomes the next version.
+The Documenso templates agreements are made from: one active template per kind, and a new one becomes the next version. Kinds: `volunteer` and `code_of_conduct` (signed during registration) and, since stage 2, `project` (sent when someone joins a live project, or when a project with them on it starts). Agreements go out only while `sending` is true, for every kind.
 
 - **`GET /api/national/agreement-templates`** → `AgreementTemplates`: `templates[]` (newest version first per kind, with `sent` counts), `connected` (Documenso is reachable with a token) and `sending` (its write switch is on, so agreements actually go out).
 - **`POST /api/national/agreement-templates`** with body `{"kind": "volunteer", "name": "Volunteer agreement", "documensoTemplateId": "envelope_abc123"}`.
   - `documensoTemplateId` may be the ID or a link to the template.
   - The template is checked in Documenso: it must exist and have a signer.
   - The new template becomes the active one for its kind.
-  - `400`: "Kind is volunteer or code_of_conduct", the name is missing, "Paste the template's ID or link from Documenso", or "Documenso doesn't have a usable template …".
+  - `400`: "Kind is volunteer, code_of_conduct or project", the name is missing, "Paste the template's ID or link from Documenso", or "Documenso doesn't have a usable template …".
   - Audited.
 - **`POST /api/national/agreement-templates/{id}/deactivate`** stops making agreements from it; signed ones stay valid. `404` "No such template". Audited.
 

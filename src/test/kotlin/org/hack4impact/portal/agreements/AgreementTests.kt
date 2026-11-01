@@ -182,12 +182,12 @@ class AgreementTests(
 	}
 
 	@Test
-	fun `national sets the template after Documenso confirms it, and project agreements are not part of stage 1`() {
+	fun `national sets the template after Documenso confirms it, and only the three kinds exist`() {
 		server.stubFor(get(urlPathEqualTo("/api/v2/envelope/missing")).willReturn(aResponse().withStatus(404).withBody("{}")))
 		stubJson("/api/v2/envelope/tmpl-volunteer-2", """{"id":"tmpl-volunteer-2","type":"TEMPLATE","status":"DRAFT","recipients":[{"id":9,"role":"SIGNER","email":"","token":"x","signingStatus":"NOT_SIGNED"}],"envelopeItems":[]}""")
 		json("/api/national/agreement-templates", """{"kind":"volunteer","name":"Volunteer agreement","documensoTemplateId":"missing"}""", as_ = "lena@hack4impact.org").andExpect { status { isForbidden() } }
 		json("/api/national/agreement-templates", """{"kind":"volunteer","name":"Volunteer agreement","documensoTemplateId":"missing"}""", as_ = "nora@hack4impact.org").andExpect { status { isBadRequest() } }
-		json("/api/national/agreement-templates", """{"kind":"project","name":"Project agreement","documensoTemplateId":"tmpl-volunteer-2"}""", as_ = "nora@hack4impact.org").andExpect { status { isBadRequest() } }
+		json("/api/national/agreement-templates", """{"kind":"nda","name":"NDA","documensoTemplateId":"tmpl-volunteer-2"}""", as_ = "nora@hack4impact.org").andExpect { status { isBadRequest() } } // project agreements came with stage 2
 		json("/api/national/agreement-templates", """{"kind":"volunteer","name":"Volunteer agreement 2027","documensoTemplateId":"https://sign.example/t/tmpl-volunteer-2"}""", as_ = "nora@hack4impact.org")
 			.andExpect {
 				status { isOk() }

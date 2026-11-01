@@ -68,6 +68,22 @@ data class ProjectMemberRow(
 	val isLead: Boolean,
 	/** pending, signed or waived. */
 	val agreementStatus: String,
+	/** Their latest project agreement in Documenso, if one was made. */
+	val agreement: MemberAgreement? = null,
+)
+
+data class MemberAgreement(
+	val id: UUID,
+	/** draft (not sent yet), sent, signed, declined, expired or voided. */
+	val status: String,
+	val sentAt: OffsetDateTime?,
+	val signedAt: OffsetDateTime?,
+	val reminders: Int,
+	/** The signed PDF is kept in the portal (GET /api/agreements/{id}/pdf). */
+	val hasPdf: Boolean,
+	/** Why it couldn't be sent or read, in words. */
+	val error: String?,
+	val declineReason: String?,
 )
 
 data class ProjectResourceRow(
