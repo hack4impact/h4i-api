@@ -272,7 +272,7 @@ Any signed-in member. Their own page: status, chapters, accounts and signed docu
 - `agreements[].hasPdf`: the signed copy can be downloaded at `GET /api/agreements/{id}/pdf`.
 - `projects[]` (stage 2): `{"chapterCode", "chapter", "slug", "name", "status", "role", "leads", "agreementStatus", "canOpen"}`, projects that aren't closed. `canOpen`: they lead it or have a role in its chapter, so `GET …/projects/{slug}` works for them.
 - `agreements[]` gain `project` (the project's name, for a project agreement) and `canSign` (stage 2).
-- `access[]` (stage 2): `{"tool", "name", "url", "state", "access", "reasons"}`. `state`: `ready`, `invited` (accept the tool's invite), `setting_up`, `after_agreement` (sign the project agreement first), `not_connected` (this portal doesn't sync that tool yet). Resources the portal leaves alone (unmanaged, or waiting for national) aren't listed. `reasons` in words: "On RISE DC", "Member of UMD", "Lead of UMD".
+- `access[]` (stage 2): `{"tool", "name", "url", "state", "access", "reasons"}`. `state`: `ready`, `invited` (accept the tool's invite), `setting_up`, `after_agreement` (sign the project agreement first), `not_connected` (this portal doesn't sync that tool yet), `agreement_not_set_up` (it waits for the project agreement, which national hasn't set up yet, or Documenso can't send). Resources the portal leaves alone (unmanaged, or waiting for national) aren't listed. `reasons` in words: "On RISE DC", "Member of UMD", "Lead of UMD".
 - Errors: `401`; `404` "Your Google account isn't linked to a member yet".
 
 #### `POST /api/me/agreements/{id}/sign`

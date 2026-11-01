@@ -64,7 +64,14 @@ PORTAL_GITHUBOAUTH_CLIENTSECRET=...
 # MEMBER_DB_USERNAME=memberdb
 # MEMBER_DB_PASSWORD=memberdb
 # PORTAL_MEMBERDB_PULL=true
+
+# Stage 2: the sync's tools. Each is read only with ENABLED and changed only with WRITE as well; every tool starts in
+# dry run. Their credentials come with each tool's adapter (packages 3-Slack, 3-Google, 3-GitHub, 3-Vaultwarden).
+# PORTAL_ADAPTERS_SLACK_ENABLED=true
+# PORTAL_SYNC_CRON=0 0 3 * * *
 ```
+
+To see what a sync would do without changing anything: `./gradlew bootRun -PenvFile=local.env --args='--spring.profiles.active=sync-dry-run'` prints one dry run per enabled tool and exits; `--spring.profiles.active=adapter-check` lists what each enabled tool's adapter can read. Like `preflight`, both run in the `one-shot` profile: no background work starts.
 
 `bootRun -PenvFile=local.env` loads it (`NAME=value` lines; values may be JSON-quoted). `deploy/fetch-secrets.sh "<vault item>" local.env` writes the same format from the vault.
 

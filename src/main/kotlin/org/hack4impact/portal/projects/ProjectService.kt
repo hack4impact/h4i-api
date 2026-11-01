@@ -56,6 +56,7 @@ class ProjectService(
 			"closed" to emptySet(),
 		)
 		private val SLUG = Regex("^[a-z0-9][a-z0-9-]*$")
+		const val MAX_NAME = 120
 		fun slugify(name: String) = name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
 
 		private fun bad(message: String): Nothing = throw ResponseStatusException(HttpStatus.BAD_REQUEST, message)
@@ -67,6 +68,8 @@ class ProjectService(
 	@Transactional
 	fun create(chapterId: UUID, input: ProjectInput, viewer: Viewer): ProjectRecord {
 		val name = input.name.trim().ifEmpty { bad("A project needs a name") }
+		// The member database holds 150; its name suffix " (<CHAPTER> <year>)" needs up to 28 more (package 7 review R3).
+		if (name.length > MAX_NAME) bad("A project name has at most $MAX_NAME characters")
 		val slug = (input.slug?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: slugify(name))
 		if (!SLUG.matches(slug)) bad("The short name may only have lowercase letters, digits and dashes")
 		if (dsl.fetchExists(PROJECT, PROJECT.CHAPTER_ID.eq(chapterId), PROJECT.SLUG.eq(slug))) conflict("This chapter already has a project called $slug")
@@ -103,6 +106,8 @@ class ProjectService(
 	@Transactional
 	fun update(chapterId: UUID, project: ProjectRecord, input: ProjectInput, viewer: Viewer) {
 		val name = input.name.trim().ifEmpty { bad("A project needs a name") }
+		// The member database holds 150; its name suffix " (<CHAPTER> <year>)" needs up to 28 more (package 7 review R3).
+		if (name.length > MAX_NAME) bad("A project name has at most $MAX_NAME characters")
 		checkTerm(chapterId, input.termId)
 		checkDates(input)
 		// Only a newly picked partner is checked: one deleted since it was picked mustn't block unrelated edits (package 5 review R3).

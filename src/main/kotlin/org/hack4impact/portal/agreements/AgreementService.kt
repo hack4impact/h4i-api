@@ -76,6 +76,9 @@ class AgreementService(
 	/** Whether agreements may be sent: Documenso connected with its write switch on (stage 1's gate, for every kind). */
 	fun canSend(): Boolean = client() != null && adapters.documenso.write
 
+	/** Project agreements go out: a project template is active and Documenso can send (package 6 review R1). */
+	fun projectAgreementsReady(): Boolean = canSend() && activeTemplate("project") != null
+
 	/** Documenso is connected, so open agreements can be read and signed. */
 	fun canRead(): Boolean = client() != null
 

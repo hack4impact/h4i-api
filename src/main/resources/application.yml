@@ -1,6 +1,14 @@
 spring:
   application:
     name: portal
+  # The one-shot commands run without the app's background work (schedules, outbox replays, sync recovery, listeners).
+  profiles:
+    group:
+      preflight: one-shot
+      adapter-check: one-shot
+      import: one-shot
+      grant: one-shot
+      sync-dry-run: one-shot
   flyway:
     schemas: portal
   jooq:

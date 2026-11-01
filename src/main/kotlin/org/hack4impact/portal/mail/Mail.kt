@@ -164,14 +164,18 @@ object Emails {
 	)
 
 	/** Stage 2 (decision 131, without drafts): after a project change, each member whose projects or access changed gets one summary. */
-	fun accessSummary(name: String, chapter: String, joins: List<String>, leaves: List<String>, gains: List<String>, loses: List<String>, afterAgreement: List<String>, link: String) = Email(
+	fun accessSummary(name: String, chapter: String, joins: List<String>, leaves: List<String>, gains: List<String>, loses: List<String>, afterAgreement: List<String>, link: String, agreementReady: Boolean = true) = Email(
 		"access_summary", "Your $chapter projects and access",
 		buildString {
 			append("Hi $name,\n\nYour $chapter projects or access just changed:\n")
 			if (joins.isNotEmpty()) append("\nYou're on: ${joins.joinToString(", ")}\n")
 			if (leaves.isNotEmpty()) append("\nYou're no longer on: ${leaves.joinToString(", ")}\n")
 			if (gains.isNotEmpty()) append("\nYou now get:\n${gains.joinToString("\n") { "  - $it" }}\n")
-			if (afterAgreement.isNotEmpty()) append("\nOnce you sign the project agreement (Documenso emails it to you):\n${afterAgreement.joinToString("\n") { "  - $it" }}\n")
+			if (afterAgreement.isNotEmpty()) {
+				// Package 6 review R1: no promise of an email that won't come.
+				append(if (agreementReady) "\nOnce you sign the project agreement (Documenso emails it to you):\n" else "\nOnce national sets up the project agreement and you sign it:\n")
+				append("${afterAgreement.joinToString("\n") { "  - $it" }}\n")
+			}
 			if (loses.isNotEmpty()) append("\nYou no longer get:\n${loses.joinToString("\n") { "  - $it" }}\n")
 			append("\nThe tools follow shortly. The project: $link")
 		},

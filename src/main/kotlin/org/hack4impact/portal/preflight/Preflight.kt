@@ -58,12 +58,17 @@ class Preflight(
 	private val mail: MailProperties,
 	private val environment: Environment,
 	private val properties: PreflightProperties,
+	private val readAdapters: List<org.hack4impact.portal.adapters.ReadAdapter>,
+	private val toolChecks: List<ToolPreflight>,
+	private val tools: org.hack4impact.portal.tools.ToolRegistry,
+	private val agreementService: org.hack4impact.portal.agreements.AgreementService,
 ) {
 	fun run(): List<Check> = buildList {
 		portal()
 		memberDatabase()
 		googleAccounts()
 		agreements()
+		sync()
 		chapters()
 	}
 
@@ -108,7 +113,7 @@ class Preflight(
 		val db = memberDb.jdbc
 		attempt(area, "Connection") { ok(area, "Connection", "connected as ${db.sql("SELECT current_user").query(String::class.java).single()}") }
 		if (last().level == Check.Level.FAIL) return
-		attempt(area, "Change check") { pull.signature(); ok(area, "Change check", "row counts and updated_at read on all six tables") }
+		attempt(area, "Change check") { pull.signature(); ok(area, "Change check", "row counts and newest changes read on all eight tables") }
 
 		val reads = listOf("volunteers", "academic_profiles", "volunteer_accounts", "chapters", "academic_institutions", "academic_terms")
 		val writes = listOf("volunteers", "academic_profiles", "volunteer_accounts")
@@ -147,11 +152,76 @@ class Preflight(
 				else -> warn(area, "Khoa's changes", "missing ${missing.joinToString()} (needed before writes go on)")
 			}
 		}
+		stage2MemberDatabase(area, db)
 		val state = dsl.selectFrom(MEMBER_DB_STATE).fetchOne()
 		val switches = "pull ${if (memberDbProperties.pull) "on" else "off"}, write switch ${if (memberDbProperties.write) "on" else "off"}, " +
-			"${if (state?.dryRun != false) "dry run" else "live"}${if (state?.paused == true) ", paused" else ""}"
+			"${if (state?.dryRun != false) "dry run" else "live"}${if (state?.paused == true) ", paused" else ""}, project writes ${if (state?.projectsEnabled == true) "on" else "off"}"
 		if (memberDbProperties.write && state?.dryRun == false && state.paused != true) warn(area, "Switches", "$switches: writes go straight to the member database")
 		else ok(area, "Switches", switches)
+	}
+
+	/**
+	 * Stage 2's member-database checks (package 8): the grants project, partner and leadership writes need, and Khoa's
+	 * stage 2 changes. Missing write grants or changes fail when the write switch is on, as stage 1's do.
+	 */
+	private fun MutableList<Check>.stage2MemberDatabase(area: String, db: org.springframework.jdbc.core.simple.JdbcClient) {
+		val writes = listOf("projects", "project_engagements", "project_assignments", "partners", "chapter_partners", "leadership_assignments")
+		val reads = writes + listOf("leadership_roles", "project_roles")
+		attempt(area, "Stage 2 grants") {
+			fun has(table: String, privilege: String) = db.sql("SELECT has_table_privilege(current_user, ?, ?)").param(table).param(privilege).query(Boolean::class.java).single()
+			val noRead = reads.filterNot { has(it, "SELECT") }
+			val noWrite = writes.flatMap { t -> listOf("INSERT", "UPDATE").filterNot { has(t, it) }.map { "$it on $t" } }
+			when {
+				noRead.isNotEmpty() -> fail(area, "Stage 2 grants", "no SELECT on ${noRead.joinToString()} (the pull reads partners and project_roles): run scripts/member-db-stage2-grants.sql")
+				noWrite.isEmpty() -> ok(area, "Stage 2 grants", "SELECT on the eight project tables; INSERT and UPDATE on ${writes.joinToString()}")
+				memberDbProperties.write -> fail(area, "Stage 2 grants", "writes are on but it lacks ${noWrite.joinToString()}: run scripts/member-db-stage2-grants.sql")
+				else -> warn(area, "Stage 2 grants", "lacks ${noWrite.joinToString()} (writes are off)")
+			}
+		}
+		attempt(area, "Stage 2 changes") {
+			fun column(table: String, name: String) = db.sql("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?")
+				.param(table).param(name).query(Long::class.java).single() > 0
+			val roles = db.sql("SELECT name FROM leadership_roles").query(String::class.java).list().toSet()
+			val statusCheck = db.sql("SELECT coalesce(string_agg(pg_get_constraintdef(oid), ' '), '') FROM pg_constraint WHERE conrelid = to_regclass('projects') AND conname = 'status_valid'")
+				.query(String::class.java).single()
+			val missing = listOf("volunteer_id", "chapter_id").filterNot { column("leadership_assignments", it) }.map { "leadership_assignments.$it" } +
+				listOf("Chapter lead", "Co-lead").filterNot { it in roles }.map { "the \"$it\" leadership role" } +
+				listOfNotNull("projects.status_valid still rejects 'draft' and 'approved'".takeIf { "draft::text'" in statusCheck })
+			when {
+				missing.isEmpty() -> ok(area, "Stage 2 changes", "leadership_assignments has volunteer_id and chapter_id; the two roles are seeded; projects.status_valid fixed")
+				memberDbProperties.write -> fail(area, "Stage 2 changes", "missing ${missing.joinToString()}: run the stage 2 part of scripts/member-db-changes.sql")
+				else -> warn(area, "Stage 2 changes", "missing ${missing.joinToString()} (needed before project writes go on)")
+			}
+		}
+	}
+
+	/**
+	 * Stage 2's tools (package 8): whether each syncing tool is synced here, whether its adapter can read it
+	 * ([org.hack4impact.portal.adapters.AdapterCheck]), its own permission checks ([ToolPreflight]), and its switches.
+	 */
+	private fun MutableList<Check>.sync() {
+		val area = "Sync"
+		val settings = dsl.selectFrom(org.hack4impact.portal.db.tables.references.TOOL_SETTING).fetch().associateBy { it.tool }
+		for (descriptor in tools.syncTools) {
+			val adapter = readAdapters.firstOrNull { it.tool == descriptor.tool }
+			if (adapter == null) {
+				warn(area, descriptor.name, "not synced: its adapter isn't enabled (PORTAL_ADAPTERS_${descriptor.key.uppercase()}_ENABLED), so its resources wait")
+				continue
+			}
+			val result = org.hack4impact.portal.adapters.AdapterCheck.run(listOf(adapter), samples = 0, resourcesToOpen = 1)
+			if (result.ok) ok(area, descriptor.name, result.report.lines().filter { it.startsWith("accounts") || it.startsWith("resources") }.joinToString(", "))
+			else fail(area, descriptor.name, result.report.lines().firstOrNull { "FAILED" in it } ?: "can't be read")
+			val own = toolChecks.filter { it.tool == descriptor.tool }
+			if (own.isEmpty()) warn(area, "${descriptor.name} permissions", "no permission check for this tool yet: its adapter item adds one (ToolPreflight)")
+			own.forEach { check -> attempt(area, "${descriptor.name} permissions") { addAll(check.checks()) } }
+			val setting = settings[descriptor.key]
+			when {
+				setting == null -> warn(area, "${descriptor.name} switches", "no settings row yet (added at startup)")
+				setting.enabled == false -> warn(area, "${descriptor.name} switches", "paused: ${setting.pauseReason}")
+				setting.dryRun == false -> warn(area, "${descriptor.name} switches", "out of dry run: the next run changes it")
+				else -> ok(area, "${descriptor.name} switches", "enabled, in dry run")
+			}
+		}
 	}
 
 	private fun MutableList<Check>.googleAccounts() {
@@ -173,6 +243,16 @@ class Preflight(
 		val area = "Documenso"
 		val client = documensoClient.ifAvailable
 		val templates = dsl.selectFrom(AGREEMENT_TEMPLATE).where(AGREEMENT_TEMPLATE.ACTIVE.isTrue).fetch()
+		// Stage 2 (package 6 review R1): resources gated on the project agreement wait for ever unless it can be sent.
+		val gated = dsl.fetchCount(org.hack4impact.portal.db.tables.references.RESOURCE_TEMPLATE, org.hack4impact.portal.db.tables.references.RESOURCE_TEMPLATE.REQUIRES_AGREEMENT.isTrue) +
+			dsl.fetchCount(org.hack4impact.portal.db.tables.references.PROJECT_RESOURCE, org.hack4impact.portal.db.tables.references.PROJECT_RESOURCE.REQUIRES_AGREEMENT.isTrue)
+		when {
+			gated == 0 -> ok(area, "Project agreement", "no resource waits for it")
+			agreementService.projectAgreementsReady() -> ok(area, "Project agreement", "a project template is active and Documenso can send")
+			else -> fail(area, "Project agreement", "resources wait for the project agreement (the GitHub team and vault collection), but " +
+				(if (templates.none { it.kind == "project" }) "there's no active project template: national adds it on the National page" else "Documenso can't send (its adapter or write switch is off)") +
+				". Members would wait for an agreement that's never sent")
+		}
 		if (client == null) {
 			warn(area, "Agreements", "the adapter is off: Join doesn't ask for a signature (Q52 says it should)")
 			return

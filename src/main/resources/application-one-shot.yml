@@ -1,0 +1,18 @@
+# Joined by every one-shot command (preflight, adapter-check, import, grant, sync-dry-run; see application.yml's
+# profile groups). The command runs and the app exits, without the background work a running portal does: no scheduled
+# jobs, no replay of outbox events left over in the database it connects to, no sync recovery, and no listener that
+# would sync a tool or send an agreement (package 3 review R5). Flyway still migrates the database first.
+spring:
+  modulith:
+    events:
+      republish-outstanding-events-on-restart: false
+
+portal:
+  scheduling:
+    enabled: false
+  sync:
+    on-request: false
+    recovery: false
+  agreements:
+    on-request: false
+    schedule-enabled: false

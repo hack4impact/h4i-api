@@ -10,7 +10,6 @@ import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.annotation.Configuration
 import org.springframework.modulith.events.ApplicationModuleListener
-import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Propagation
@@ -117,10 +116,20 @@ class DryRunListener(private val engine: SyncEngine, @org.springframework.beans.
  * tool is synced once, which covers whatever was waiting.
  */
 @Component
-class SyncRecovery(private val dsl: org.jooq.DSLContext, private val locks: RunLocks, private val requests: SyncRequests) {
+class SyncRecovery(
+	private val dsl: org.jooq.DSLContext,
+	private val locks: RunLocks,
+	private val requests: SyncRequests,
+	@org.springframework.beans.factory.annotation.Value("\${portal.sync.recovery:true}") private val enabled: Boolean,
+) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
+	/** At startup, unless turned off (the one-shot profiles: a preflight mustn't mark a live app's run failed or start a sync). */
 	@org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent::class)
+	fun onStartup() {
+		if (enabled) recover()
+	}
+
 	fun recover(): Int {
 		val run = org.hack4impact.portal.db.tables.references.SYNC_RUN
 		val interrupted = locks.exclusive(RunLocks.SYNC) {
@@ -137,7 +146,6 @@ class SyncRecovery(private val dsl: org.jooq.DSLContext, private val locks: RunL
 
 /** The nightly sync (PRD: drift detection). Off unless PORTAL_SYNC_CRON is set, e.g. "0 0 3 * * *". */
 @Configuration(proxyBeanMethods = false)
-@EnableScheduling
 class SyncSchedule(private val requests: SyncRequests) {
 	@Scheduled(cron = "\${portal.sync.cron:-}", zone = "America/New_York")
 	fun nightly() = requests.request("schedule")

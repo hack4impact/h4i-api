@@ -360,9 +360,9 @@ class ProjectTests(
 			jsonPath("$.projects[0].role") { value("Developer") }
 			jsonPath("$.projects[0].canOpen") { value(false) }
 			jsonPath("$.access[?(@.tool == 'slack')].reasons[0]") { value("On RISE DC") }
-			jsonPath("$.access[?(@.tool == 'github')].state") { value("after_agreement") }
+			jsonPath("$.access[?(@.tool == 'github')].state") { value("agreement_not_set_up") } // no Documenso in these tests (package 6 review R1)
 		}
-		send("GET", "/api/chapters/umd/members/$ada/access").andExpect { jsonPath("$[?(@.tool == 'github')].reasons[0]") { value("After they sign the RISE DC agreement") } }
+		send("GET", "/api/chapters/umd/members/$ada/access").andExpect { jsonPath("$[?(@.tool == 'github')].reasons[0]") { value("After the RISE DC agreement, which isn't set up yet") } }
 		send("GET", "/api/chapters/umd/members/$ada/access", as_ = "vic@hack4impact.org").andExpect { status { isForbidden() } }
 		send("GET", "/api/chapters/umd/members/$gus/access").andExpect { status { isNotFound() } }
 
@@ -371,6 +371,7 @@ class ProjectTests(
 		assertContains(text, "You're on: RISE DC")
 		assertContains(text, "  - #umd-rise-dc (Slack)")
 		assertContains(text, "Once you sign the project agreement")
+		assertContains(Emails.accessSummary("Ada", "UMD", emptyList(), emptyList(), emptyList(), emptyList(), listOf("x"), "l", agreementReady = false).text, "Once national sets up the project agreement")
 		assertContains(text, "https://portal/projects/umd/rise-dc")
 		waitForOutbox()
 	}
@@ -456,7 +457,7 @@ class ProjectTests(
 		send("PUT", "/api/chapters/umd/projects/rise-dc/resources/$github", """{"audience":"team","access":"admin","requiresAgreement":true}""").andExpect { status { isOk() } }
 		member(ada).andExpect { status { isOk() } }
 		send("GET", "/api/me/home", as_ = "ada@hack4impact.org").andExpect {
-			jsonPath("$.access[?(@.tool == 'github')].state") { value("after_agreement") }
+			jsonPath("$.access[?(@.tool == 'github')].state") { value("agreement_not_set_up") } // no Documenso in these tests (package 6 review R1)
 			jsonPath("$.access[?(@.tool == 'github')].access") { value("admin") }
 		}
 		waitForOutbox()

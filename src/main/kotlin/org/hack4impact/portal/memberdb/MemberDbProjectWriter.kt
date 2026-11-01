@@ -89,12 +89,14 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 		val end = if (p.status == "closed") (p.endsOn?.atStartOfDay()?.atOffset(ZoneOffset.UTC) ?: p.closedAt) else p.endsOn?.atStartOfDay()?.atOffset(ZoneOffset.UTC)
 		val notes = mutableListOf<String>()
 
-		// The projects row: a past one the lead linked (only the engagement is written), the one the portal made, or a new one.
+		// The projects row: a past one the lead linked (only the engagement is written), else the portal's own, whose ID is
+		// the project's. Known before the write, so a retry after a lost stamp finds it rather than making a second one
+		// (package 7 review R2).
 		val linked = p.memberDbLinked == true
-		val ownRow = if (linked) null else p.memberDbProjectId
-		val name = if (linked) null else uniqueName(p.name!!, chapter.code!!, start.year, ownRow)
+		val projectsRow = if (linked) p.memberDbProjectId!! else p.memberDbProjectId ?: projectId
+		val rowExists = !linked && memberDb.jdbc.sql("SELECT count(*) FROM projects WHERE id = ?").param(projectsRow).query(Long::class.java).single() > 0
+		val name = if (linked) null else uniqueName(p.name!!, chapter.code!!, start.year, projectsRow)
 		if (name != null && name != p.name) notes += "\"${p.name}\" is taken in the member database: written as \"$name\""
-		val projectsRow = if (linked) p.memberDbProjectId!! else ownRow ?: UUID.randomUUID()
 
 		// The team, every row the project ever had: each member's volunteer row must be there first.
 		val members = dsl.select(PROJECT_MEMBER.ID, PROJECT_MEMBER.PERSON_ID, PROJECT_MEMBER.MEMBER_DB_ASSIGNMENT_ID, PROJECT_MEMBER.ADDED_AT, PROJECT_MEMBER.REMOVED_AT,
@@ -104,7 +106,8 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 		val volunteers = volunteersOf(members.map { it.value2()!! }.toSet())
 		val assignments = members.map { m ->
 			val role = m.value7() ?: throw MemberDbConflict("The project role ${m.value6()} isn't in the member database")
-			Assignment(m.value1()!!, m.value3() ?: m.value1()!!, volunteers.getValue(m.value2()!!), role, m.value4()!!, m.value5())
+			// No earlier than the engagement: someone added while it was a draft starts with it (package 7 review R4).
+			Assignment(m.value1()!!, m.value3() ?: m.value1()!!, volunteers.getValue(m.value2()!!), role, maxOf(m.value4()!!, start), m.value5())
 		}
 
 		val fields = buildMap {
@@ -124,12 +127,12 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 
 		return ProjectWritePlan(projectId, fields = fields, notes = notes) { db ->
 			if (partnerExists == null) {
-				db.sql("INSERT INTO partners (id, name, website, status) VALUES (?, ?, ?, 'active')").args(partnerId, partner.name, partner.website).update()
+				db.sql("INSERT INTO partners (id, name, website, status) VALUES (?, ?, ?, 'active') ON CONFLICT (id) DO NOTHING").args(partnerId, partner.name, partner.website).update()
 			}
 			db.sql("INSERT INTO chapter_partners (chapter_id, partner_id) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM chapter_partners WHERE chapter_id = ? AND partner_id = ?)")
 				.args(chapterId, partnerId, chapterId, partnerId).update()
 			if (!linked) {
-				if (ownRow == null) db.sql("INSERT INTO projects (id, name, status) VALUES (?, ?, ?)").args(projectsRow, name, projectStatus).update()
+				if (!rowExists) db.sql("INSERT INTO projects (id, name, status) VALUES (?, ?, ?)").args(projectsRow, name, projectStatus).update()
 				else db.sql("UPDATE projects SET name = ?, status = ? WHERE id = ?").args(name, projectStatus, projectsRow).update()
 			}
 			db.sql(
@@ -140,7 +143,8 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 				""".trimIndent(),
 			).args(projectId, chapterId, partnerId, projectsRow, engagementStatus, start, end).update()
 			val opened = assignments.mapNotNull { a -> writeAssignment(db, a, projectId)?.let { a.memberRow to it } }.toMap()
-			Stamps(projectsRow.takeIf { !linked && ownRow == null }, if (partnerExists == null) partner.id!! to partnerId else null, opened)
+			// Stamped whenever missing, not only when this write made the row: a retry after a lost stamp still stamps it (R2).
+			Stamps(projectsRow.takeIf { !linked && p.memberDbProjectId == null }, if (partner.sourceId == null) partner.id!! to partnerId else null, opened)
 		}
 	}
 
@@ -157,15 +161,16 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 			db.sql("INSERT INTO project_assignments (id, volunteer_id, project_engagement_id, project_role_id, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)")
 				.args(id, a.volunteer, engagement, a.role, start, a.end).update()
 		}
-		return when {
-			existing == null -> { insert(a.id, a.start); a.id }
-			existing.first != a.role && existing.second == null -> {
-				val now = OffsetDateTime.now()
-				db.sql("UPDATE project_assignments SET end_date = ? WHERE id = ?").args(now, a.id).update()
-				UUID.randomUUID().also { insert(it, now) }
-			}
-			else -> { db.sql("UPDATE project_assignments SET end_date = ? WHERE id = ?").args(a.end, a.id).update(); a.id }
-		}
+		if (existing == null) { insert(a.id, a.start); return a.id }
+		if (existing.first == a.role) { db.sql("UPDATE project_assignments SET end_date = ? WHERE id = ?").args(a.end, a.id).update(); return a.id }
+		// The role changed since this assignment was written: end it (if a retry hasn't already) and open one for the new
+		// role, or find the one an earlier attempt opened, whose ID a lost stamp didn't keep (package 7 review R2).
+		val now = OffsetDateTime.now()
+		if (existing.second == null) db.sql("UPDATE project_assignments SET end_date = ? WHERE id = ?").args(now, a.id).update()
+		val opened = db.sql("SELECT id FROM project_assignments WHERE project_engagement_id = ? AND volunteer_id = ? AND project_role_id = ? AND id <> ? AND end_date IS NULL ORDER BY start_date DESC LIMIT 1")
+			.args(engagement, a.volunteer, a.role, a.id).query(UUID::class.java).optional().orElse(null)
+		if (opened != null) { db.sql("UPDATE project_assignments SET end_date = ? WHERE id = ?").args(a.end, opened).update(); return opened }
+		return UUID.randomUUID().also { insert(it, now) }
 	}
 
 	/**

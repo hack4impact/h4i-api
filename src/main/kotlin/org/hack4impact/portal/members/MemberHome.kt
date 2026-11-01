@@ -69,7 +69,10 @@ data class MyAccess(
 	val name: String,
 	/** A link to it in the tool, once it exists there. */
 	val url: String?,
-	/** ready, invited (accept the invite), setting_up (not done yet), after_agreement (sign first), not_connected (this portal doesn't sync the tool yet). */
+	/**
+	 * ready, invited (accept the invite), setting_up (not done yet), after_agreement (sign first), agreement_not_set_up
+	 * (waits for the project agreement, which national hasn't set up yet), not_connected (this portal doesn't sync the tool yet).
+	 */
 	val state: String,
 	val access: String,
 	/** Why they have it, in words: "On RISE DC", "Member of UMD", "Lead of UMD" (PRD: "each member's page shows why"). */
@@ -169,13 +172,16 @@ class MemberHomeQueries(
 			}
 			MyAccess(r.tool!!, r.name!!, links.url(r.tool!!, r.name!!, r.externalId), state, g.access.name.lowercase(), g.reasons.map(::why))
 		}
+		// Nothing to sign yet when the project agreement can't be sent (package 6 review R1): say so instead of "after you sign".
+		val agreementReady = signing.projectAgreementsReady()
 		val later = waiting.distinctBy { it.resourceId }.mapNotNull { w ->
 			val r = resources[w.resourceId] ?: return@mapNotNull null
 			val project = (w.why as WithheldReason.AwaitingAgreement).projectId
 			// The level the project gives it (package 5 review R7): the resolver's withheld grants carry none.
 			val level = dsl.select(PROJECT_RESOURCE.ACCESS_LEVEL).from(PROJECT_RESOURCE)
 				.where(PROJECT_RESOURCE.PROJECT_ID.eq(project), PROJECT_RESOURCE.RESOURCE_ID.eq(w.resourceId)).fetchOne()?.value1() ?: "write"
-			MyAccess(r.tool!!, r.name!!, null, "after_agreement", level, listOf("After ${if (own) "you sign" else "they sign"} the ${projectNames[project] ?: "project"} agreement"))
+			if (!agreementReady) MyAccess(r.tool!!, r.name!!, null, "agreement_not_set_up", level, listOf("After the ${projectNames[project] ?: "project"} agreement, which isn't set up yet"))
+			else MyAccess(r.tool!!, r.name!!, null, "after_agreement", level, listOf("After ${if (own) "you sign" else "they sign"} the ${projectNames[project] ?: "project"} agreement"))
 		}
 		return (granted + later).sortedWith(compareBy({ tools.find(it.tool)?.order ?: 99 }, { it.name }))
 	}

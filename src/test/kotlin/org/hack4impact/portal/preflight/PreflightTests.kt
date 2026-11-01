@@ -65,6 +65,12 @@ class PreflightTests(@Autowired private val preflight: Preflight, @Autowired pri
 		assertEquals(Check.Level.WARN, checks.of("Member database", "No delete grant").level) // the test login owns the tables
 		assertEquals(Check.Level.WARN, checks.of("Google", "Accounts").level) // not creating accounts
 		assertEquals(Check.Level.WARN, checks.of("Documenso", "Agreements").level)
+		// Stage 2 (package 8): the fake member database has the stage 2 part of Khoa's script, and the test login owns it.
+		assertEquals(Check.Level.OK, checks.of("Member database", "Stage 2 grants").level, checks.of("Member database", "Stage 2 grants").detail)
+		assertEquals(Check.Level.OK, checks.of("Member database", "Stage 2 changes").level, checks.of("Member database", "Stage 2 changes").detail)
+		assertEquals(Check.Level.WARN, checks.of("Sync", "Slack").level) // no adapters in this context
+		// The template gates the GitHub team and vault collection, but Documenso is off (package 6 review R1).
+		assertEquals(Check.Level.FAIL, checks.of("Documenso", "Project agreement").level)
 		val umd = checks.of("Chapter", "umd")
 		assertEquals(Check.Level.FAIL, umd.level)
 		assertTrue("no school email domains" in umd.detail && "no lead or co-lead" in umd.detail, umd.detail)
@@ -88,5 +94,18 @@ class PreflightTests(@Autowired private val preflight: Preflight, @Autowired pri
 		val checks = preflight.run()
 		assertEquals(Check.Level.OK, checks.of("Chapter", "umd").level, checks.of("Chapter", "umd").detail)
 		assertEquals(Check.Level.OK, checks.of("Portal", "National admins").level)
+	}
+
+	@Test
+	fun `the project agreement check passes when nothing waits for it, and the stage 2 changes are missing on a database without them`() {
+		dsl.update(org.hack4impact.portal.db.tables.references.RESOURCE_TEMPLATE).set(org.hack4impact.portal.db.tables.references.RESOURCE_TEMPLATE.REQUIRES_AGREEMENT, false).execute()
+		assertEquals(Check.Level.OK, preflight.run().of("Documenso", "Project agreement").level)
+
+		val db = MemberDbFixture.writable
+		org.springframework.jdbc.core.simple.JdbcClient.create(org.springframework.jdbc.datasource.DriverManagerDataSource(db.url, db.username, db.password))
+			.sql("ALTER TABLE leadership_assignments DROP COLUMN volunteer_id CASCADE; DELETE FROM leadership_roles WHERE name = 'Co-lead'").update()
+		val changes = preflight.run().of("Member database", "Stage 2 changes")
+		assertEquals(Check.Level.WARN, changes.level) // the write switch is off here; with it on it fails (PreflightStage2Tests)
+		assertTrue("leadership_assignments.volunteer_id" in changes.detail && "Co-lead" in changes.detail, changes.detail)
 	}
 }

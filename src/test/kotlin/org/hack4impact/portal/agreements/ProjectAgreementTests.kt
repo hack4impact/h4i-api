@@ -235,6 +235,8 @@ class ProjectAgreementTests(
 		mvc.get("/api/me/home") { with(signedIn("ada@hack4impact.org")) }.andExpect {
 			jsonPath("$.agreements[0].project") { value("RISE DC") }
 			jsonPath("$.agreements[0].canSign") { value(true) }
+			jsonPath("$.access[?(@.tool == 'github')].state") { value("after_agreement") } // the agreement can be sent here
+			jsonPath("$.access[?(@.tool == 'github')].reasons[0]") { value("After you sign the RISE DC agreement") }
 		}
 		json("/api/me/agreements/$id/sign", "{}", as_ = "ada@hack4impact.org").andExpect { jsonPath("$.url") { value("${server.baseUrl()}/sign/tok-env-1") } }
 		json("/api/me/agreements/$id/sign", "{}", as_ = "lena@hack4impact.org").andExpect { status { isNotFound() } } // not hers

@@ -90,7 +90,11 @@ Chapter leads and national admins are entered in the portal (the member DB can't
 | `PORTAL_MAIL_MODE` | `gmail` (production, as noreply@), `smtp` (Mailpit), `log` |
 | `MEMBER_DB_URL`, `MEMBER_DB_USERNAME`, `MEMBER_DB_PASSWORD` | The member database (the `portal_sync` login in production) |
 | `PORTAL_MEMBERDB_PULL`, `PORTAL_MEMBERDB_WRITE` | Pull on a schedule; the write switch (writes also need national to leave dry run) |
-| `PORTAL_ADAPTERS_DOCUMENSO_*` | The registration document (`ENABLED`, `BASEURL`, `TOKEN`, `WEBHOOKSECRET`, `WRITE`); national picks the template on the National page |
+| `PORTAL_ADAPTERS_DOCUMENSO_*` | The registration document and, since stage 2, the project agreement (`ENABLED`, `BASEURL`, `TOKEN`, `WEBHOOKSECRET`, `WRITE`); national picks the templates on the National page |
+| `PORTAL_ADAPTERS_<TOOL>_ENABLED`, `…_WRITE` | *Stage 2.* The tools the sync manages (`SLACK`, `GOOGLE`, `GITHUB`, `VAULTWARDEN`): read with `ENABLED`, changed only with `WRITE` too. Every tool starts in dry run; national takes it out on the National page. Each tool's credentials come with its adapter |
+| `PORTAL_SYNC_CRON` | *Stage 2.* A nightly sync, e.g. `0 0 3 * * *` (off unless set); changes ask for a sync anyway |
+
+**One-shot commands** (`preflight`, `adapter-check`, `sync-dry-run`, `import`, `grant`) join the `one-shot` profile: no scheduled jobs, no replay of outbox events left in the database, no sync recovery and no background syncs or agreement sends, so running one against a live deployment's database changes nothing but what it's for. Flyway still migrates first.
 
 ## Preflight
 
@@ -105,9 +109,10 @@ Before going live (and after changing settings), check the deployment with its r
 It prints one line per check (OK, WARN or FAIL) and exits 1 if anything failed:
 
 - **Portal:** the public address and the frontend's, Google and GitHub sign-in set, email not in `log` mode, at least one national admin.
-- **Member database:** the connection, the change check, `SELECT` on the six tables it reads, `INSERT` and `UPDATE` on the three it writes, no `DELETE`, Khoa's changes (`scripts/member-db-changes.sql`: keys, unique accounts, `updated_at` triggers), and the switches.
+- **Member database:** the connection, the change check, `SELECT` on the six tables it reads, `INSERT` and `UPDATE` on the three it writes, no `DELETE`, Khoa's changes (`scripts/member-db-changes.sql`: keys, unique accounts, `updated_at` triggers), and the switches. *Stage 2:* the grants on the project, partner and leadership tables (`scripts/member-db-stage2-grants.sql`), and the script's stage 2 part (`leadership_assignments.volunteer_id` and `chapter_id`, the "Chapter lead" and "Co-lead" roles, the fixed `projects.status_valid`); missing ones fail when the write switch is on.
 - **Google:** the service account can look up the admin; a sandbox org-unit scope is flagged.
-- **Documenso:** each active template is a template with a signer; the webhook secret.
+- **Documenso:** each active template is a template with a signer; the webhook secret. *Stage 2:* when a template gates resources (the GitHub team and vault collection), a project template must be active and Documenso able to send, or it fails: members would wait for an agreement that's never sent.
+- **Sync** *(stage 2)*: for each of Slack, Google, GitHub and Vaultwarden, whether it's synced here (its adapter enabled), whether the adapter can read it, its own permission check (added with each tool's adapter), and its switches.
 - **Each chapter:** school email domains, Google domain and org unit, a current lead or co-lead, its questions, and academic terms after this year.
 
 ## Deploy

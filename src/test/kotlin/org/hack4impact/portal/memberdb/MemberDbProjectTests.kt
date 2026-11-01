@@ -59,6 +59,7 @@ class MemberDbProjectTests(
 	@Autowired private val writer: MemberDbProjectWriter,
 	@Autowired private val writes: MemberDbWrites,
 	@Autowired private val pull: MemberDbPull,
+	@Autowired private val db: MemberDb,
 ) {
 	companion object {
 		@JvmStatic
@@ -307,5 +308,52 @@ class MemberDbProjectTests(
 			if (key == "projects.id") continue // a new row's ID is chosen when it's written
 			assertEquals(value, written.path(key).takeUnless { it.isNull }?.asString(), key)
 		}
+	}
+
+	// Package 7 review fixes -----------------------------------------------------------------------------------------
+
+	@Test
+	fun `a write repeated after its stamps were lost makes no duplicates (review R2)`() {
+		live()
+		val partner = dsl.insertInto(PARTNER).set(PARTNER.NAME, "Brand New Partner").returningResult(PARTNER.ID).fetchSingle().value1()!!
+		val project = started(partner = partner)
+		projects.addMember(umd, record(project), MemberInput(person(ADA), role(ENGINEER)), system)
+		// The member database's half commits; the app stops before the portal stamps the IDs. Then the worker retries.
+		db.inTransaction(writer.planProject(project).ops)
+		writer.writeProject(project)
+		assertEquals(1L, count("SELECT count(*) FROM projects WHERE name LIKE 'Food Drive%'"))
+		assertEquals(project, one("SELECT project_id FROM project_engagements WHERE id = ?", project)["project_id"]) // the row's ID is the project's
+		assertEquals(project, record(project).memberDbProjectId)
+		assertEquals(partner, dsl.select(PARTNER.SOURCE_ID).from(PARTNER).where(PARTNER.ID.eq(partner)).fetchSingle().value1())
+		assertEquals(1L, count("SELECT count(*) FROM partners WHERE name = 'Brand New Partner'"))
+
+		// The same after a role change: one open assignment, for the new role.
+		projects.setMemberRole(umd, record(project), person(ADA), MemberRoleInput(role(TECH_LEAD)), system)
+		db.inTransaction(writer.planProject(project).ops)
+		writer.writeProject(project)
+		val open = memberDb.sql("SELECT project_role_id FROM project_assignments WHERE project_engagement_id = ? AND end_date IS NULL").param(project).query(UUID::class.java).list()
+		assertEquals(listOf(TECH_LEAD), open)
+		assertEquals(2L, count("SELECT count(*) FROM project_assignments WHERE project_engagement_id = ?", project))
+	}
+
+	@Test
+	fun `someone added while the project was a draft starts with its engagement (review R4)`() {
+		live()
+		val draft = projects.create(umd, ProjectInput("Food Drive", partnerId = portalId(PARTNER, RISE), startsOn = LocalDate.parse("2027-01-11")), system).id!!
+		projects.addMember(umd, record(draft), MemberInput(person(ADA), role(ENGINEER)), system)
+		projects.setStatus(umd, record(draft), "active", system)
+		writer.runDue()
+		assertEquals(
+			one("SELECT start_date FROM project_engagements WHERE id = ?", draft)["start_date"],
+			one("SELECT start_date FROM project_assignments WHERE project_engagement_id = ?", draft)["start_date"],
+		)
+	}
+
+	@Test
+	fun `a project name has room for its member-database suffix (review R3)`() {
+		val error = kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> {
+			projects.create(umd, ProjectInput("x".repeat(121), partnerId = portalId(PARTNER, RISE)), system)
+		}
+		assertEquals("A project name has at most 120 characters", error.reason)
 	}
 }
