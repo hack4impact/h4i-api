@@ -27,11 +27,12 @@ class ToolPluginGuardTests(
 	companion object {
 		private val KEYS = Tool.entries.map { it.name.lowercase() }
 
-		/** Files that may name several tools: the registry, the adapters' wiring, and the member database's provider names. */
+		/** Files that may name several tools: the registry, the adapters' wiring, the member database's provider names, the sandbox suite. */
 		private val ALLOWED = setOf(
 			"src/main/kotlin/org/hack4impact/portal/tools/ToolRegistry.kt",
 			"src/main/kotlin/org/hack4impact/portal/adapters/AdapterConfiguration.kt", // one block per tool's adapters
 			"src/main/kotlin/org/hack4impact/portal/memberimport/MemberDbImporter.kt", // the member DB's provider names
+			"src/main/kotlin/org/hack4impact/portal/sync/SandboxE2E.kt", // the sandbox suite checks each tool its own way (package 9)
 		)
 	}
 

@@ -363,6 +363,15 @@ class ProjectTests(
 			jsonPath("$.access[?(@.tool == 'github')].state") { value("agreement_not_set_up") } // no Documenso in these tests (package 6 review R1)
 		}
 		send("GET", "/api/chapters/umd/members/$ada/access").andExpect { jsonPath("$[?(@.tool == 'github')].reasons[0]") { value("After the RISE DC agreement, which isn't set up yet") } }
+		// Hers already sent before sending was switched off: she still has it to sign (package 8 review R3).
+		val template = dsl.insertInto(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE).set(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE.KIND, "project")
+			.set(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE.NAME, "Project agreement").set(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE.DOCUMENSO_TEMPLATE_ID, "t")
+			.set(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE.VERSION, 1).returningResult(org.hack4impact.portal.db.tables.references.AGREEMENT_TEMPLATE.ID).fetchSingle().value1()
+		val projectId = dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.SLUG.eq("rise-dc")).fetchSingle().value1()
+		dsl.insertInto(org.hack4impact.portal.db.tables.references.AGREEMENT).set(org.hack4impact.portal.db.tables.references.AGREEMENT.PERSON_ID, ada)
+			.set(org.hack4impact.portal.db.tables.references.AGREEMENT.PROJECT_ID, projectId).set(org.hack4impact.portal.db.tables.references.AGREEMENT.TEMPLATE_ID, template)
+			.set(org.hack4impact.portal.db.tables.references.AGREEMENT.STATUS, "sent").execute()
+		send("GET", "/api/me/home", as_ = "ada@hack4impact.org").andExpect { jsonPath("$.access[?(@.tool == 'github')].state") { value("after_agreement") } }
 		send("GET", "/api/chapters/umd/members/$ada/access", as_ = "vic@hack4impact.org").andExpect { status { isForbidden() } }
 		send("GET", "/api/chapters/umd/members/$gus/access").andExpect { status { isNotFound() } }
 

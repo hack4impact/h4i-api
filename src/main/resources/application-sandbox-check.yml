@@ -1,0 +1,10 @@
+# Stage 2 package 9: empties the LOCAL portal database, loads sandbox-fixture.yml, dry-runs against the sandboxes, and
+# compares the planned diff with the fixture's `expect` list. Use scripts/sandbox-check.sh (a throwaway Postgres).
+# Add --portal.sandbox-check.discover=true to print everything the adapters see (to help write the fixture).
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  sandbox-check:
+    enabled: true

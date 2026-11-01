@@ -9,6 +9,8 @@ spring:
       import: one-shot
       grant: one-shot
       sync-dry-run: one-shot
+      sandbox-check: one-shot
+      sandbox-e2e: one-shot
   flyway:
     schemas: portal
   jooq:

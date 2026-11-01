@@ -10,6 +10,9 @@ spring:
 portal:
   scheduling:
     enabled: false
+  # No tool_setting rows added: the running app adds them (package 8 review R2).
+  tools:
+    bootstrap: false
   sync:
     on-request: false
     recovery: false

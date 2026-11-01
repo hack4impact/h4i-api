@@ -86,19 +86,22 @@ Chapter leads and national admins are entered in the portal (the member DB can't
 | `PORTAL_JOIN_BASE_URL` | Where the chapter join links live |
 | `PORTAL_GOOGLE_CLIENT_ID`, `PORTAL_GOOGLE_CLIENT_SECRET` | Google sign-in for leads, national and members |
 | `PORTAL_GITHUBOAUTH_CLIENTID`, `PORTAL_GITHUBOAUTH_CLIENTSECRET` | GitHub sign-in for applicants |
-| `PORTAL_ADAPTERS_GOOGLE_*` | Creating members' Google accounts (`ENABLED`, `CREATEACCOUNTS`, `ADMINSUBJECT`, `SERVICEACCOUNTKEY`, `USERSCOPE`) |
+| `PORTAL_ADAPTERS_GOOGLE_*` | Creating members' Google accounts (`ENABLED`, `CREATEACCOUNTS`, `ADMINSUBJECT`, `SERVICEACCOUNTKEY`, `USERSCOPE`). *Stage 2:* `ENABLED` also reads Google groups for the sync, so domain-wide delegation must allow the read scopes (admin.directory.user.readonly, admin.directory.group.readonly, admin.directory.group.member.readonly) before deploying, and `WRITE` changes groups (admin.directory.group); `CUSTOMER`, `ORGUNITPATH` and `GROUPSCOPE` (a regex: only matching groups, a sandbox setting) limit what's read. Preflight checks the scopes |
 | `PORTAL_MAIL_MODE` | `gmail` (production, as noreply@), `smtp` (Mailpit), `log` |
 | `MEMBER_DB_URL`, `MEMBER_DB_USERNAME`, `MEMBER_DB_PASSWORD` | The member database (the `portal_sync` login in production) |
 | `PORTAL_MEMBERDB_PULL`, `PORTAL_MEMBERDB_WRITE` | Pull on a schedule; the write switch (writes also need national to leave dry run) |
 | `PORTAL_ADAPTERS_DOCUMENSO_*` | The registration document and, since stage 2, the project agreement (`ENABLED`, `BASEURL`, `TOKEN`, `WEBHOOKSECRET`, `WRITE`); national picks the templates on the National page |
+| `PORTAL_ADAPTERS_GITHUB_*` | *Stage 2.* The GitHub App on the national org, for teams and org invites: `ENABLED`, `ORG` (login or URL), `APPID`, `INSTALLATIONID`, `PRIVATEKEY` (inline PEM or a file path), `WRITE`. Writing needs the installation to have Members: Read and write; preflight checks it |
+| `PORTAL_ADAPTERS_VAULTWARDEN_*` | *Stage 2.* Project collections, as the organization's service admin: `ENABLED`, `BASEURL`, `ORGANIZATIONID`, `CLIENTID` and `CLIENTSECRET` (the service admin's personal API key), `WRITE`, and with it `MASTERPASSWORD` (unlocks the organization key). `TRUSTEDCERTIFICATE` is for a local CA only. Needs Vaultwarden 1.37 or later; preflight checks the version, the admin's role and the master password. `scripts/vaultwarden-local.sh` starts a throwaway one to try it |
 | `PORTAL_ADAPTERS_<TOOL>_ENABLED`, `…_WRITE` | *Stage 2.* The tools the sync manages (`SLACK`, `GOOGLE`, `GITHUB`, `VAULTWARDEN`): read with `ENABLED`, changed only with `WRITE` too. Every tool starts in dry run; national takes it out on the National page. Each tool's credentials come with its adapter |
+| `PORTAL_ADAPTERS_SLACK_BOTTOKEN` | *Stage 2.* The Slack app's bot token (`xoxb-…`), with the scopes channels:read, groups:read, users:read, users:read.email, and for writes channels:manage and groups:write; preflight checks them |
 | `PORTAL_SYNC_CRON` | *Stage 2.* A nightly sync, e.g. `0 0 3 * * *` (off unless set); changes ask for a sync anyway |
 
-**One-shot commands** (`preflight`, `adapter-check`, `sync-dry-run`, `import`, `grant`) join the `one-shot` profile: no scheduled jobs, no replay of outbox events left in the database, no sync recovery and no background syncs or agreement sends, so running one against a live deployment's database changes nothing but what it's for. Flyway still migrates first.
+**One-shot commands** (`preflight`, `adapter-check`, `sync-dry-run`, `import`, `grant`, `sandbox-check`, `sandbox-e2e`) join the `one-shot` profile: no scheduled jobs, no replay of outbox events left in the database, no sync recovery and no background syncs or agreement sends, so running one against a live deployment's database changes nothing but what it's for. Flyway still migrates first.
 
 ## Preflight
 
-Before going live (and after changing settings), check the deployment with its real settings. It only reads: nothing is created, written or emailed.
+Before going live (and after changing settings), check the deployment with its real settings. It only reads: nothing is created, written or emailed, except that Flyway migrates the database first, as every start does.
 
 ```sh
 ./gradlew bootRun --args='--spring.profiles.active=preflight'                               # every chapter taking applications
@@ -114,6 +117,19 @@ It prints one line per check (OK, WARN or FAIL) and exits 1 if anything failed:
 - **Documenso:** each active template is a template with a signer; the webhook secret. *Stage 2:* when a template gates resources (the GitHub team and vault collection), a project template must be active and Documenso able to send, or it fails: members would wait for an agreement that's never sent.
 - **Sync** *(stage 2)*: for each of Slack, Google, GitHub and Vaultwarden, whether it's synced here (its adapter enabled), whether the adapter can read it, its own permission check (added with each tool's adapter), and its switches.
 - **Each chapter:** school email domains, Google domain and org unit, a current lead or co-lead, its questions, and academic terms after this year.
+
+## Sandbox suite *(stage 2)*
+
+Really changes the sandboxes through the sync engine and checks each tool: create, add, the agreement gate, Vaultwarden's accept and confirm, signing, removing a member, closing the project, cleanup. It runs against a local sandbox, never staging (it empties its own local database):
+
+```sh
+scripts/sandbox-setup.sh      # once per machine: Vaultwarden (HTTPS), Documenso, Mailpit and Postgres in Docker, seeded
+scripts/sandbox-e2e.sh        # the suite, against the local Vaultwarden and Documenso
+scripts/sandbox-e2e.sh --fixture my-fixture.yml deploy/sandbox/sandbox.env shared-sandboxes.env   # add Slack, GitHub, Google
+scripts/sandbox-check.sh my-fixture.yml   # dry run only: compares the planned diff with the fixture's `expect` list
+```
+
+Each tool with `PORTAL_ADAPTERS_<TOOL>_WRITE=true` takes part; created resources start with `sandbox-<user>-<time>-`, so testers don't collide (the Google group scope must match). `--sign` waits for you to sign the test agreement by hand; otherwise the suite signs in the local Documenso itself. Fixture format: `sandbox-fixture.example.yml`.
 
 ## Deploy
 

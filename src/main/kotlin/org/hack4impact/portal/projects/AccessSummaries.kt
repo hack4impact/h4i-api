@@ -76,7 +76,6 @@ class AccessSummaries(
 		val (chapter, code, slug) = dsl.select(CHAPTER.NAME, CHAPTER.CODE, PROJECT.SLUG).from(PROJECT).join(CHAPTER).on(CHAPTER.ID.eq(PROJECT.CHAPTER_ID))
 			.where(PROJECT.ID.eq(projectId)).fetchSingle().let { Triple(it.value1()!!, it.value2()!!, it.value3()!!) }
 		val link = "${frontendUrl.trimEnd('/')}/projects/$code/$slug"
-		val agreementReady = agreements.projectAgreementsReady()
 
 		fun of(keys: Collection<Pair<UUID, UUID>>, person: UUID, names: Map<UUID, String>) = keys.filter { it.first == person }.mapNotNull { names[it.second] }.sorted()
 		var sent = 0
@@ -85,7 +84,8 @@ class AccessSummaries(
 			val gains = of(added, p.id!!, labels) + changed.filter { it.first == p.id }.mapNotNull { k -> labels[k.second]?.let { "$it, now ${after.grants.getValue(k).name.lowercase()}" } }
 			val first = p.preferredName?.takeIf { it.isNotBlank() } ?: p.firstName!!
 			mailer.send(
-				Emails.accessSummary(first, chapter, of(joins, p.id!!, projectNames), of(leaves, p.id!!, projectNames), gains.sorted(), of(removed, p.id!!, labels), of(waiting, p.id!!, labels), link, agreementReady),
+				Emails.accessSummary(first, chapter, of(joins, p.id!!, projectNames), of(leaves, p.id!!, projectNames), gains.sorted(), of(removed, p.id!!, labels), of(waiting, p.id!!, labels), link,
+					agreements.agreementExpected(p.id!!, projectId)),
 				to, person = p.id,
 			)
 			sent++

@@ -1,0 +1,10 @@
+# Stage 2 package 9: REALLY changes the sandboxes through the sync engine (create, add, gate, sign, remove, close, clean
+# up). Use scripts/sandbox-e2e.sh, which runs it against a throwaway Postgres. Part of the one-shot profile: nothing in
+# the background, the suite runs the sync and the agreement passes itself.
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  sandbox-e2e:
+    enabled: true

@@ -172,15 +172,14 @@ class MemberHomeQueries(
 			}
 			MyAccess(r.tool!!, r.name!!, links.url(r.tool!!, r.name!!, r.externalId), state, g.access.name.lowercase(), g.reasons.map(::why))
 		}
-		// Nothing to sign yet when the project agreement can't be sent (package 6 review R1): say so instead of "after you sign".
-		val agreementReady = signing.projectAgreementsReady()
 		val later = waiting.distinctBy { it.resourceId }.mapNotNull { w ->
 			val r = resources[w.resourceId] ?: return@mapNotNull null
 			val project = (w.why as WithheldReason.AwaitingAgreement).projectId
 			// The level the project gives it (package 5 review R7): the resolver's withheld grants carry none.
 			val level = dsl.select(PROJECT_RESOURCE.ACCESS_LEVEL).from(PROJECT_RESOURCE)
 				.where(PROJECT_RESOURCE.PROJECT_ID.eq(project), PROJECT_RESOURCE.RESOURCE_ID.eq(w.resourceId)).fetchOne()?.value1() ?: "write"
-			if (!agreementReady) MyAccess(r.tool!!, r.name!!, null, "agreement_not_set_up", level, listOf("After the ${projectNames[project] ?: "project"} agreement, which isn't set up yet"))
+			// Nothing to sign yet when theirs wasn't sent and can't be (package 6 review R1, per person: package 8 review R3).
+			if (!signing.agreementExpected(person, project)) MyAccess(r.tool!!, r.name!!, null, "agreement_not_set_up", level, listOf("After the ${projectNames[project] ?: "project"} agreement, which isn't set up yet"))
 			else MyAccess(r.tool!!, r.name!!, null, "after_agreement", level, listOf("After ${if (own) "you sign" else "they sign"} the ${projectNames[project] ?: "project"} agreement"))
 		}
 		return (granted + later).sortedWith(compareBy({ tools.find(it.tool)?.order ?: 99 }, { it.name }))

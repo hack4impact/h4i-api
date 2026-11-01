@@ -65,4 +65,11 @@ class HttpJsonTests {
 		assertFailsWith<RateLimited> { http(RateLimitPolicy.NONE).get("${server.baseUrl()}/users.list") }
 		assertEquals(0, slept.size)
 	}
+
+	@Test
+	fun `a GitHub org given as a link or with a slash becomes its login`() {
+		for (value in listOf("hack4impact", "hack4impact/", " hack4impact ", "https://github.com/hack4impact", "github.com/hack4impact/", "https://github.com/hack4impact/some-repo")) {
+			assertEquals("hack4impact", githubOrg(value), value)
+		}
+	}
 }

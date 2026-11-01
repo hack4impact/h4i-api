@@ -170,12 +170,13 @@ class Preflight(
 		attempt(area, "Stage 2 grants") {
 			fun has(table: String, privilege: String) = db.sql("SELECT has_table_privilege(current_user, ?, ?)").param(table).param(privilege).query(Boolean::class.java).single()
 			val noRead = reads.filterNot { has(it, "SELECT") }
-			val noWrite = writes.flatMap { t -> listOf("INSERT", "UPDATE").filterNot { has(t, it) }.map { "$it on $t" } }
+			// Grouped by table: "INSERT, UPDATE on projects" (package 8 review R5).
+			val noWrite = writes.mapNotNull { t -> listOf("INSERT", "UPDATE").filterNot { has(t, it) }.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} on $t" } }
 			when {
 				noRead.isNotEmpty() -> fail(area, "Stage 2 grants", "no SELECT on ${noRead.joinToString()} (the pull reads partners and project_roles): run scripts/member-db-stage2-grants.sql")
 				noWrite.isEmpty() -> ok(area, "Stage 2 grants", "SELECT on the eight project tables; INSERT and UPDATE on ${writes.joinToString()}")
-				memberDbProperties.write -> fail(area, "Stage 2 grants", "writes are on but it lacks ${noWrite.joinToString()}: run scripts/member-db-stage2-grants.sql")
-				else -> warn(area, "Stage 2 grants", "lacks ${noWrite.joinToString()} (writes are off)")
+				memberDbProperties.write -> fail(area, "Stage 2 grants", "writes are on but it lacks ${noWrite.joinToString("; ")}: run scripts/member-db-stage2-grants.sql")
+				else -> warn(area, "Stage 2 grants", "lacks ${noWrite.joinToString("; ")} (writes are off)")
 			}
 		}
 		attempt(area, "Stage 2 changes") {
@@ -186,7 +187,7 @@ class Preflight(
 				.query(String::class.java).single()
 			val missing = listOf("volunteer_id", "chapter_id").filterNot { column("leadership_assignments", it) }.map { "leadership_assignments.$it" } +
 				listOf("Chapter lead", "Co-lead").filterNot { it in roles }.map { "the \"$it\" leadership role" } +
-				listOfNotNull("projects.status_valid still rejects 'draft' and 'approved'".takeIf { "draft::text'" in statusCheck })
+				listOfNotNull("the projects.status_valid fix (it still rejects 'draft' and 'approved')".takeIf { "draft::text'" in statusCheck })
 			when {
 				missing.isEmpty() -> ok(area, "Stage 2 changes", "leadership_assignments has volunteer_id and chapter_id; the two roles are seeded; projects.status_valid fixed")
 				memberDbProperties.write -> fail(area, "Stage 2 changes", "missing ${missing.joinToString()}: run the stage 2 part of scripts/member-db-changes.sql")
@@ -302,8 +303,8 @@ class Preflight(
 }
 
 /**
- * `--spring.profiles.active=preflight`: prints each check and exits 1 if any failed. The scheduled jobs start a
- * minute or more after startup, so they don't run before it exits.
+ * `--spring.profiles.active=preflight`: prints each check and exits 1 if any failed. It runs in the `one-shot` profile, so
+ * no scheduled job, outbox replay, sync or settings bootstrap starts (package 3 review R5, package 8 review R2).
  */
 @Component
 @ConditionalOnBooleanProperty("portal.preflight.enabled")

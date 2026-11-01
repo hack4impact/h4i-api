@@ -68,8 +68,11 @@ PORTAL_GITHUBOAUTH_CLIENTSECRET=...
 # Stage 2: the sync's tools. Each is read only with ENABLED and changed only with WRITE as well; every tool starts in
 # dry run. Their credentials come with each tool's adapter (packages 3-Slack, 3-Google, 3-GitHub, 3-Vaultwarden).
 # PORTAL_ADAPTERS_SLACK_ENABLED=true
+# PORTAL_ADAPTERS_SLACK_BOTTOKEN=xoxb-...   (the sandbox app's, from the secrets store)
 # PORTAL_SYNC_CRON=0 0 3 * * *
 ```
+
+For Vaultwarden and Documenso there's no shared sandbox. `scripts/sandbox-setup.sh` starts local ones (Docker: Vaultwarden over HTTPS on `localhost:8443`, Documenso on `localhost:3010`, their mail in Mailpit on `localhost:8025`), seeds them, and writes their settings to `deploy/sandbox/sandbox.env`; pass that file as the `-PenvFile`, or copy its lines into `local.env`. `scripts/sandbox-e2e.sh` runs the sandbox suite against them (README, "Sandbox suite"). `docker compose -f deploy/sandbox/compose.yml down -v` removes them. For a quick Vaultwarden on its own, `scripts/vaultwarden-local.sh vaultwarden.env` starts a throwaway one on `127.0.0.1:8090`.
 
 To see what a sync would do without changing anything: `./gradlew bootRun -PenvFile=local.env --args='--spring.profiles.active=sync-dry-run'` prints one dry run per enabled tool and exits; `--spring.profiles.active=adapter-check` lists what each enabled tool's adapter can read. Like `preflight`, both run in the `one-shot` profile: no background work starts.
 
@@ -177,7 +180,7 @@ With both running, from the browser at `http://localhost:5173`:
 ./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec   # rewrite openapi.json after changing an endpoint
 ```
 
-The tests use fake GitHub, Google, Documenso and member database, with no real services or people.
+The tests use fake GitHub, Google, Documenso and member database, with no real services or people. The sandbox suite (`scripts/sandbox-e2e.sh`) is the one that changes real tools: see the README.
 
 ## 9. Resetting
 

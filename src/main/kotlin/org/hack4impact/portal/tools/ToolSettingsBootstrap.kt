@@ -14,10 +14,16 @@ import org.springframework.stereotype.Component
  * listeners, so no sync can run without a new tool's row.
  */
 @Component
-class ToolSettingsBootstrap(private val dsl: DSLContext, private val tools: ToolRegistry) : SmartInitializingSingleton {
+class ToolSettingsBootstrap(
+	private val dsl: DSLContext,
+	private val tools: ToolRegistry,
+	@org.springframework.beans.factory.annotation.Value("\${portal.tools.bootstrap:true}") private val enabled: Boolean,
+) : SmartInitializingSingleton {
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	override fun afterSingletonsInstantiated() {
+		// Not in the one-shot commands: a preflight writes nothing (package 8 review R2); the app adds the rows when it starts.
+		if (!enabled) return
 		val added = tools.syncTools.sumOf { dsl.insertInto(TOOL_SETTING).set(TOOL_SETTING.TOOL, it.key).onConflictDoNothing().execute() }
 		if (added > 0) log.info("Tool settings: added {} for newly registered tools (in dry run)", added)
 		val known = tools.all.map { it.key }.toSet()

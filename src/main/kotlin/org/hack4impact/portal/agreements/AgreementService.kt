@@ -79,6 +79,13 @@ class AgreementService(
 	/** Project agreements go out: a project template is active and Documenso can send (package 6 review R1). */
 	fun projectAgreementsReady(): Boolean = canSend() && activeTemplate("project") != null
 
+	/**
+	 * Whether [person] has something to sign for [project]: agreements go out, or theirs was already sent (it stays
+	 * signable while sending is switched off). False only when nothing was sent and nothing can be (package 8 review R3).
+	 */
+	fun agreementExpected(person: UUID, project: UUID): Boolean = projectAgreementsReady() ||
+		dsl.fetchExists(AGREEMENT, AGREEMENT.PERSON_ID.eq(person), AGREEMENT.PROJECT_ID.eq(project), AGREEMENT.STATUS.`in`("sent", "signed"))
+
 	/** Documenso is connected, so open agreements can be read and signed. */
 	fun canRead(): Boolean = client() != null
 

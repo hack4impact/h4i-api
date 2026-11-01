@@ -25,6 +25,7 @@ class OneShotProfileTests(
 	@Autowired private val environment: Environment,
 	@Autowired private val dsl: DSLContext,
 	@Autowired private val recovery: SyncRecovery,
+	@Autowired private val bootstrap: org.hack4impact.portal.tools.ToolSettingsBootstrap,
 ) {
 	@Test
 	fun `nothing runs in the background`() {
@@ -38,11 +39,17 @@ class OneShotProfileTests(
 			.returning(SYNC_RUN.ID).fetchSingle().id
 		recovery.onStartup()
 		assertEquals("running", dsl.select(SYNC_RUN.STATUS).from(SYNC_RUN).where(SYNC_RUN.ID.eq(run)).fetchSingle().value1()) // left for the live app
+
+		// No tool settings written either (package 8 review R2): the running app adds them.
+		val setting = org.hack4impact.portal.db.tables.references.TOOL_SETTING
+		dsl.deleteFrom(setting).execute()
+		bootstrap.afterSingletonsInstantiated()
+		assertEquals(0, dsl.fetchCount(setting))
 	}
 
 	@Test
 	fun `every one-shot command joins it`() {
-		val groups = listOf("preflight", "adapter-check", "import", "grant", "sync-dry-run")
+		val groups = listOf("preflight", "adapter-check", "import", "grant", "sync-dry-run", "sandbox-check", "sandbox-e2e")
 		groups.forEach { assertEquals("one-shot", environment.getProperty("spring.profiles.group.$it")?.trim(), it) }
 	}
 }

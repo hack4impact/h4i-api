@@ -50,6 +50,8 @@ out/
 
 ### Local credential files (sandbox keys) ###
 secrets/
+# The local sandbox's generated certificates and keys (scripts/sandbox-setup.sh)
+deploy/sandbox/certs/
 
 ### Sandbox check fixture (specific to your sandboxes) ###
 sandbox-fixture.yml
