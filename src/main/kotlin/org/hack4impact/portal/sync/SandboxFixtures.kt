@@ -49,10 +49,20 @@ internal fun loadFixturePeople(dsl: DSLContext, fixture: Map<String, Any?>, tool
  * (the national resource template, which the truncate takes with `chapter`) and each syncing tool's settings row, in
  * dry run, as `ToolSettingsBootstrap` would (it's off in the one-shot profile).
  */
+/** More people than a sandbox fixture would ever hold. */
+internal const val MAX_SANDBOX_PEOPLE = 50
+
 internal fun resetSandboxDatabase(dsl: DSLContext, dataSource: DataSource, tools: ToolRegistry, confirmed: Boolean, flag: String) {
 	val url = dataSource.connection.use { it.metaData.url }
 	check("//localhost" in url || "//127.0.0.1" in url) { "refusing to reset a non-local database ($url)" }
 	check(confirmed) { "add --$flag=true: this empties the local portal database first" }
+	// A deployment's database reached through a tunnel on localhost passes the URL check (review R3): refuse one that holds
+	// what only a deployment would, people imported from the member database or more than a sandbox's handful.
+	val imported = dsl.fetchCount(PERSON, PERSON.SOURCE_ID.isNotNull)
+	val people = dsl.fetchCount(PERSON)
+	check(imported == 0 && people <= MAX_SANDBOX_PEOPLE) {
+		"refusing to reset a database that looks like a deployment's ($people people, $imported from the member database): the sandbox's has at most $MAX_SANDBOX_PEOPLE and none imported"
+	}
 	val national = dsl.selectFrom(RESOURCE_TEMPLATE).where(RESOURCE_TEMPLATE.CHAPTER_ID.isNull).fetch()
 	val tables = dsl.fetch("SELECT tablename FROM pg_tables WHERE schemaname = 'portal' AND tablename <> 'flyway_schema_history'").map { it.get(0, String::class.java) }
 	dsl.execute("TRUNCATE " + tables.joinToString { "portal.\"$it\"" } + " CASCADE")

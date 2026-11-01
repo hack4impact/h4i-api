@@ -40,6 +40,7 @@ Checked against the code and a running instance on 2026-10-31.
 | Chapter codes | Lowercase short names, e.g. `umd`, `gt`; used in paths |
 | Nulls | Optional fields are present with `null`, not left out |
 | Live spec | `GET /v3/api-docs` (needs Google sign-in) serves the same spec as `openapi.json` |
+| Reference page | `/scalar`: the spec as a browsable reference (Scalar). The page opens for anyone, but it loads `/v3/api-docs`, so sign in first (`/oauth2/authorization/google`). Its "Test request" works for GETs; writes need the `X-XSRF-TOKEN` header from the `XSRF-TOKEN` cookie, which it doesn't add |
 
 There's no versioning in the path. Breaking changes show up as a changed `openapi.json` in a pull request.
 

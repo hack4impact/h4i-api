@@ -22,7 +22,7 @@ Port 5173 is Vite's default. If your dev server uses another port, use it everyw
 - **Docker**, running. `bootRun` starts Postgres, the fake member database and Mailpit from `compose.yaml`.
 - **Nothing else for the API.** Gradle downloads JDK 25 if you don't have it.
 - **Free ports:** 8080, 5433, 1026 and 8026. The full portal (`../Membership-Project-Portal`) uses the same ones, so stop it first.
-- **An `@hack4impact.org` Google account** to sign in with. The OAuth client is internal to H4I's Workspace.
+- **An H4I Google account** to sign in with: `@hack4impact.org` or a chapter's subdomain (`@umd.hack4impact.org`). The OAuth client is internal to H4I's Workspace.
 
 ## 2. OAuth apps for local use
 
@@ -39,7 +39,7 @@ Without Google nobody can sign in. Without GitHub, applicants can't finish Join 
 
 ## 3. A local settings file
 
-Create `local.env` in this folder. It's git-ignored by the `*.env` rule; never commit it.
+Copy `local.env.example` to `local.env` in this folder and fill in its `<from the vault>` values (national shares a filled copy through the vault item "portal development"). `local.env` is git-ignored by the `*.env` rule; never commit it. The example below is the minimum; the template also lists the sandbox tools, all off.
 
 ```sh
 # Where browsers reach the app: the frontend's dev server, for both.
@@ -117,7 +117,7 @@ The dev server must forward four path prefixes to `http://localhost:8080`, **kee
 /api   /oauth2   /login/oauth2   /logout
 ```
 
-Forward `/v3` too if you want the live spec at `/v3/api-docs`.
+Forward `/v3` and `/scalar` too if you want the live spec at `/v3/api-docs` and its reference page at `/scalar`. Without the frontend, open `http://localhost:8080/oauth2/authorization/google` to sign in, then `http://localhost:8080/scalar`.
 
 ### Vite
 
@@ -163,6 +163,16 @@ With both running, from the browser at `http://localhost:5173`:
 1. **API through the proxy:** `http://localhost:5173/api/status` shows `{"service":"portal",…}`.
 2. **Sign in:** go to `http://localhost:5173/oauth2/authorization/google`. After Google you should land back on `http://localhost:5173/`, and `/api/me` shows your chapters with `nationalAdmin: true`.
 3. **Email:** open Mailpit at `http://localhost:8026`. Every email the API sends (codes, claim links, invites, approvals) lands there.
+
+### The API reference (Scalar)
+
+The spec as a browsable page, with each endpoint's parameters, schemas and a "Test request" button. It works without the frontend:
+
+1. **Start the API** ([step 5](#5-start-the-api)). With `PORTAL_BASE_URL=http://localhost:8080`, the Google client needs `http://localhost:8080/login/oauth2/code/google` as a redirect URI; the development client has it.
+2. **Sign in:** open `http://localhost:8080/oauth2/authorization/google` and choose your H4I account. Signing in is enough: no `grant` needed to read the spec. Afterwards Google sends you to `PORTAL_FRONTEND_URL`; with the API alone that's a 404 page, which is fine.
+3. **Open `http://localhost:8080/scalar`** in the same browser. Behind the frontend's dev server it's `http://localhost:5173/scalar`, once `/scalar` and `/v3` are forwarded ([step 6](#6-point-the-frontend-at-it)).
+
+If the page loads but shows no endpoints, the spec request failed with 401: sign in again (step 2). "Test request" sends your session cookie, so GETs work as you. Writes also need the `X-XSRF-TOKEN` header, copied from the `XSRF-TOKEN` cookie, which Scalar doesn't add. Without sign-in, `openapi.json` in this folder is the same spec.
 
 ### Trying the flows
 

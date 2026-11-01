@@ -24,8 +24,8 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 data class AuthProperties(val allowedDomain: String = "hack4impact.org")
 
 /**
- * Sign-in with Google, limited to one Workspace domain (PRD: Security). The `hd` parameter only hints Google's
- * account picker; the real check is [DomainCheck] on the returned ID token. Applicant sessions for registration
+ * Sign-in with Google, limited to one Workspace domain and its chapter subdomains (PRD: Security). The `hd` parameter
+ * only hints Google's account picker; the real check is [DomainCheck] on the returned ID token. Applicant sessions for registration
  * and claims get their own filter chain under /api/apply in step 10.
  */
 @Configuration(proxyBeanMethods = false)
@@ -51,10 +51,12 @@ class SecurityConfiguration {
 				// Documenso calling back: no sign-in, verified by its shared secret instead.
 				it.requestMatchers("/api/webhooks/**").permitAll()
 				it.requestMatchers("/api/**", "/v3/api-docs", "/v3/api-docs/**").authenticated()
+				// Scalar's API reference page and its scripts; the spec it fetches stays behind sign-in (above).
+				it.requestMatchers("/scalar", "/scalar/**").permitAll()
 				it.anyRequest().permitAll() // there's no UI here (the frontend is a separate app), so the rest is 404s and /error
 			}
 			.oauth2Login {
-				it.authorizationEndpoint { endpoint -> endpoint.authorizationRequestResolver(domainHint(clients, properties.allowedDomain)) }
+				it.authorizationEndpoint { endpoint -> endpoint.authorizationRequestResolver(workspaceHint(clients)) }
 				it.userInfoEndpoint { info -> info.oidcUserService(users) }
 				it.defaultSuccessUrl("$frontend/", true)
 				it.failureUrl("$frontend/?signin=denied")
@@ -85,9 +87,13 @@ class SecurityConfiguration {
 		}
 	}
 
-	private fun domainHint(clients: ClientRegistrationRepository, domain: String) =
+	/**
+	 * `hd=*`: Google's picker offers Workspace accounts only. Not `hd=<allowed domain>`: Google then takes the address's
+	 * domain as fixed and a chapter account (chase@umd.hack4impact.org) can't be typed in, though [DomainCheck] allows it.
+	 */
+	private fun workspaceHint(clients: ClientRegistrationRepository) =
 		DefaultOAuth2AuthorizationRequestResolver(clients, "/oauth2/authorization").apply {
-			setAuthorizationRequestCustomizer { it.additionalParameters { params -> params["hd"] = domain } }
+			setAuthorizationRequestCustomizer { it.additionalParameters { params -> params["hd"] = "*" } }
 		}
 }
 

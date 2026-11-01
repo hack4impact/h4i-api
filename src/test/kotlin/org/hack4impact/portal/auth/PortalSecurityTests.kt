@@ -155,11 +155,11 @@ class PortalSecurityTests(
 	}
 
 	@Test
-	fun `sign-in goes to Google with the Workspace domain hint`() {
+	fun `sign-in goes to Google asking for any Workspace account, so chapter subdomain accounts can be typed in`() {
 		mvc.get("/oauth2/authorization/google").andExpect {
 			status { is3xxRedirection() }
 			header { string("Location", org.hamcrest.Matchers.startsWith("https://accounts.google.com/o/oauth2/v2/auth")) }
-			header { string("Location", org.hamcrest.Matchers.containsString("hd=hack4impact.org")) }
+			header { string("Location", org.hamcrest.Matchers.anyOf(org.hamcrest.Matchers.containsString("hd=*"), org.hamcrest.Matchers.containsString("hd=%2A"))) }
 		}
 	}
 

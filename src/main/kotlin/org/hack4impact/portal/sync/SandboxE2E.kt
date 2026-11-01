@@ -216,9 +216,14 @@ class SandboxE2E(
 				check(r.tool, "apply: created ${externalId(r.tool) ?: "nothing"}", created, changes.firstOrNull { it.value1() == "create_resource" }?.value4() ?: "")
 				val added = changes.filter { it.value1() == "add" && it.value2() in setOf("applied", "invited") }.mapNotNull { it.value3() }.toSet()
 				val expected = team.filter { r.tool !in gated || it != signer }
-				val other = changes.filter { it.value1() == "add" && it.value2() !in setOf("applied", "invited") }.map { "${names[it.value3()]}: ${it.value2()}${it.value4()?.let { e -> " $e" } ?: ""}" }
-				check(r.tool, "apply: added or invited ${added.size} of ${expected.size}", added.isNotEmpty(), other.joinToString().ifEmpty { "everyone" })
 				relist(r.tool)
+				// Everyone expected is added or invited, except someone with no account the tool could use, whose grant
+				// waits for one (review R2). At least one real add, so the tool itself is exercised.
+				val waiting = changes.filter { it.value1() == "add" && it.value2() == "waiting" }.mapNotNull { it.value3() }.filter { accountsOf(r.tool, it).isEmpty() }.toSet()
+				val unexplained = expected.filter { it !in added && it !in waiting }
+				val detail = (unexplained.map { p -> "${names[p]}: ${changes.firstOrNull { it.value1() == "add" && it.value3() == p }?.let { "${it.value2()}${it.value4()?.let { e -> " $e" } ?: ""}" } ?: "nothing planned"}" } +
+					waiting.map { "${names[it]}: waiting, no account in the tool" }).joinToString().ifEmpty { "everyone" }
+				check(r.tool, "apply: added or invited ${added.size} of ${expected.size}", added.isNotEmpty() && unexplained.isEmpty(), detail)
 				val there = membersIn(r.tool)
 				val applied = changes.filter { it.value1() == "add" && it.value2() == "applied" }.mapNotNull { it.value3() }
 				val missing = applied.filterNot { has(r.tool, it, there) }

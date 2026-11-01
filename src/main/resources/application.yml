@@ -93,3 +93,9 @@ springdoc:
   api-docs:
     path: /v3/api-docs
   paths-to-match: /api/**
+
+# The API reference (Scalar) at /scalar. The page is public; the spec it loads, like /v3/api-docs, needs sign-in.
+scalar:
+  enabled: true
+  path: /scalar
+  page-title: H4I Portal API

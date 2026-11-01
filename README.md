@@ -10,15 +10,14 @@ The first stage of the Hack4Impact member portal, as its own app: **Members, App
 
 On approval or claim, the portal creates the member's `@hack4impact.org` Google account (or asks national to, as an admin-queue task), emails them, and queues their record for the member database.
 
-Copied on 2026-10-13 from `../Membership-Project-Portal` (the full portal: projects, tool access, drafts, automations, adoption, agreements) and cut down to stage 1. The plan is in the wiki: `../Docs/wiki/staged-rollout.md`.
-
 Kotlin + Spring Boot 4 on Java 25, PostgreSQL 17 with Flyway and jOOQ, built with Gradle.
 
 ## API only
 
-Since 2026-10-31 this app has no UI: it's the backend the H4I portal's own frontend calls. Everything is under `/api` (plus Google sign-in at `/oauth2/authorization/google` and `/logout`). The pages named above live in that frontend.
+This app has no UI: it's the backend the H4I portal's own frontend calls. Everything is under `/api` (plus Google sign-in at `/oauth2/authorization/google` and `/logout`). The pages named above live in that frontend.
 
 - **Docs:** [docs/API.md](docs/API.md), every endpoint with its access rules, errors, side effects and flows; [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md), running it next to the frontend.
+- **Reference:** `/scalar` on a running app shows the spec as a browsable page (springdoc with Scalar); the spec it loads needs sign-in. Steps: [docs/LOCAL-DEVELOPMENT.md, "The API reference"](docs/LOCAL-DEVELOPMENT.md#the-api-reference-scalar).
 - **Contract:** [openapi.json](openapi.json), checked against the live API by `OpenApiSpecTests` (regenerate with `./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec`). Generate the frontend's client from it.
 - **The frontend must serve** `/apply` (also `?github=failed` and `?signed=<kind>`), `/claim/<token>`, `/join/<chapter>?invite=<token>`, `/projects/<chapter>/<slug>` and `/agreements/<id>` (stage 2), and `/` (also `?signin=denied`), at `PORTAL_FRONTEND_URL`: email links and redirects point there.
 - **Sign-in is cookies:** the Google session (`JSESSIONID`), the applicant session (`h4i_applicant`, path `/api/apply`) and the CSRF token (`XSRF-TOKEN`, sent back as `X-XSRF-TOKEN` on writes). They work when the frontend and this API share one site, e.g. the frontend's server proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` here. There's no CORS set up for calls from another origin.

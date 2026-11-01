@@ -9,7 +9,7 @@ import javax.crypto.*;
 import javax.crypto.spec.*;
 
 /**
- * Sets up a throwaway local Vaultwarden (1.37) for the portal's Vaultwarden adapter (wiki: stage-2-package-3-vaultwarden):
+ * Sets up a throwaway local Vaultwarden (1.37) for the portal's Vaultwarden adapter (wiki: steps/stage-2/package-3-vaultwarden):
  * registers a PBKDF2 service admin and two members (example.test, local-only passwords), creates an organization as the
  * admin, and prints the env lines the portal needs, API key and master password included. Run by
  * scripts/vaultwarden-local.sh; uses the same Bitwarden client-side crypto as adapters/vaultwarden/VaultwardenCrypto.kt.

@@ -43,7 +43,8 @@ dependencies {
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	implementation("com.google.auth:google-auth-library-oauth2-http:1.54.0")
-	implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:3.1.1")
+	// The OpenAPI spec (/v3/api-docs) and Scalar's reference page for it (/scalar).
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-scalar:3.1.1")
 	implementation("org.springframework.modulith:spring-modulith-starter-jdbc")
 	developmentOnly("org.springframework.boot:spring-boot-docker-compose")
 	runtimeOnly("org.postgresql:postgresql")

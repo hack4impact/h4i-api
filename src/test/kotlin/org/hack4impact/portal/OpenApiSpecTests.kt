@@ -39,6 +39,15 @@ class OpenApiSpecTests(@Autowired private val mvc: MockMvc) {
 		)
 	}
 
+	@Test
+	fun `the Scalar reference page is open, and the spec it loads still needs sign-in`() {
+		val page = mvc.get("/scalar").andReturn().response
+		assertEquals(200, page.status)
+		kotlin.test.assertContains(page.contentAsString, "/v3/api-docs")
+		assertEquals(401, mvc.get("/v3/api-docs").andReturn().response.status)
+		assertEquals(200, mvc.get("/v3/api-docs") { with(oidcLogin()) }.andReturn().response.status)
+	}
+
 	/** The tree with every object's keys in alphabetical order (arrays keep theirs). */
 	private fun sorted(mapper: JsonMapper, node: tools.jackson.databind.JsonNode): tools.jackson.databind.JsonNode = when {
 		node.isObject -> mapper.createObjectNode().also { out -> node.properties().sortedBy { it.key }.forEach { (k, v) -> out.set(k, sorted(mapper, v)) } }
