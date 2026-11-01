@@ -5,7 +5,7 @@ import org.hack4impact.portal.adapters.NotFound
 import org.hack4impact.portal.adapters.Rejected
 import org.hack4impact.portal.adapters.text
 import org.hack4impact.portal.mail.NewAccount
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import java.security.SecureRandom
 import java.text.Normalizer
 

@@ -1,6 +1,6 @@
 package org.hack4impact.portal.adapters
 
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import org.slf4j.LoggerFactory
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper

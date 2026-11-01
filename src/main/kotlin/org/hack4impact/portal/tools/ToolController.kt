@@ -7,8 +7,8 @@ import org.springframework.web.bind.annotation.RestController
 data class ToolInfo(val key: String, val name: String, val order: Int)
 
 @RestController
-class ToolController {
+class ToolController(private val tools: ToolRegistry) {
 	/** Every tool a person can have an account in, in list order. */
 	@GetMapping("/api/tools")
-	fun tools(): List<ToolInfo> = Tool.entries.filter { it.accounts }.sortedBy { it.order }.map { ToolInfo(it.key, it.label, it.order) }
+	fun tools(): List<ToolInfo> = tools.accountTools.map { ToolInfo(it.key, it.name, it.order) }
 }

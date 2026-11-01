@@ -275,8 +275,11 @@ Any signed-in member. The tools people have accounts in, in display order. Use i
 
 ```json
 [{"key": "slack", "name": "Slack", "order": 1}, {"key": "google", "name": "Google", "order": 2},
- {"key": "github", "name": "GitHub", "order": 3}, {"key": "notion", "name": "Notion", "order": 4}]
+ {"key": "github", "name": "GitHub", "order": 3}, {"key": "notion", "name": "Notion", "order": 4},
+ {"key": "vaultwarden", "name": "Vaultwarden", "order": 5}]
 ```
+
+Vaultwarden is listed since stage 2 (project vault collections); the shape is unchanged.
 
 ### 6.3 Chapters: members, approvals, settings, roster
 
@@ -674,7 +677,7 @@ The full schemas are in `openapi.json`. These are the fields whose meaning or va
 | Chapter `status` | `active`, `inactive`, `pending`, `supported`, `suspended` |
 | Chapter role | `lead`, `co_lead`, `viewer` (and `national` in `/api/me` and `ChapterOverview`) |
 | Account `state` (`AccountSummary`, `MyAccount`) | `unverified`, `invited`, `accepted`, `confirmed`, `suspended`, `removed` |
-| Account `tool` | `slack`, `google`, `github`, `notion` (see `GET /api/tools`) |
+| Account `tool` | `slack`, `google`, `github`, `notion`, `vaultwarden` (see `GET /api/tools`) |
 | Question `kind` | `text`, `long_text`, `choice`, `yes_no` |
 | Graduation season | `spring`, `summer`, `fall`, `winter` |
 | Roster invite `status` | `sent`, `started`, `completed`, `expired` |

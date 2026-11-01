@@ -1,6 +1,6 @@
 package org.hack4impact.portal.adapters
 
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import java.time.Duration
 
 /** How a call to another service failed, the same way for every service, so callers can retry or report without knowing it. */

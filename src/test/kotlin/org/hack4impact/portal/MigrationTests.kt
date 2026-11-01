@@ -1,6 +1,7 @@
 package org.hack4impact.portal
 
 import org.flywaydb.core.Flyway
+import org.jooq.DSLContext
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -13,7 +14,7 @@ import kotlin.test.assertEquals
 /** Each stage's migrations apply on a database the previous stage made and filled, as production will be. */
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest
-class MigrationTests(@Autowired private val dataSource: DataSource) {
+class MigrationTests(@Autowired private val dataSource: DataSource, @Autowired private val dsl: DSLContext) {
 	private val schema = "upgrade_test"
 	private val jdbc = JdbcClient.create(dataSource)
 
@@ -50,6 +51,23 @@ class MigrationTests(@Autowired private val dataSource: DataSource) {
 		).update()
 		assertEquals(1, count("project"))
 	}
+
+	@Test
+	fun `the test helper puts back exactly the template the migration seeds`() {
+		flyway("latest").migrate()
+		dsl.emptyPortalTables()
+
+		assertEquals(template(schema), template("portal"))
+		assertEquals(listOf("slack", "google", "github", "vaultwarden"), template(schema).map { it!!.substringBefore("|") })
+	}
+
+	/** Every template row as one string, in order: what the migration seeded, or what `emptyPortalTables` put back. */
+	private fun template(schema: String) = jdbc.sql(
+		"""
+		SELECT concat_ws('|', tool, position, name_pattern, audience, access_level, requires_agreement, tags::text, chapter_id::text)
+		FROM $schema.resource_template ORDER BY position
+		""".trimIndent(),
+	).query(String::class.java).list()
 
 	private fun count(table: String) = jdbc.sql("SELECT count(*) FROM $schema.$table").query(Int::class.java).single()
 }

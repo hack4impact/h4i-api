@@ -3,9 +3,10 @@
 -- From the full portal's V1, V5 and V7, without imported projects, Notion pages or national projects.
 
 -- Partners: imported from the member database every pull, or added by national. Picked from a list, never typed in.
+-- Names are unique ignoring case, so "Food bank" can't sit beside "Food Bank".
 CREATE TABLE partner (
 	id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-	name        text NOT NULL UNIQUE,
+	name        text NOT NULL,
 	website     text,
 	source_id   uuid UNIQUE, -- its partners.id in the member database, imported or stamped after the portal writes it
 	imported_at timestamptz,
@@ -13,6 +14,7 @@ CREATE TABLE partner (
 	updated_at  timestamptz NOT NULL DEFAULT now(),
 	deleted_at  timestamptz
 );
+CREATE UNIQUE INDEX partner_name_idx ON partner (lower(name));
 CREATE TRIGGER partner_updated_at BEFORE UPDATE ON partner FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- Project roles, imported from the member database (Designer, Developer; Design Lead, Project Manager, Tech Lead lead).

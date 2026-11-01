@@ -116,16 +116,27 @@ class MemberDbImporter(private val dsl: DSLContext) {
 		return sourceMap(CHAPTER)
 	}
 
+	/**
+	 * Partners leads pick from. One deleted in the member database is deleted here too (once imported, it stays as a
+	 * row, since projects may point at it), so it can't be picked; restored there, the upsert restores it here.
+	 */
 	private fun importPartners(source: JdbcClient, report: ImportReport) {
 		val counts = report.counts("partner")
 		source.sql("SELECT id, name, website, deleted_at FROM partners ORDER BY id").query { rs, _ ->
 			counts.read++
-			if (rs.getObject("deleted_at") != null) {
-				counts.skipped++
+			val deletedAt = rs.getObject("deleted_at", OffsetDateTime::class.java)
+			if (deletedAt != null) {
+				// imported_at moves with it, so the deletion doesn't count as an edit made in the portal.
+				val deleted = dsl.update(PARTNER)
+					.set(PARTNER.DELETED_AT, deletedAt)
+					.set(PARTNER.IMPORTED_AT, DSL.currentOffsetDateTime())
+					.where(PARTNER.SOURCE_ID.eq(rs.uuid("id")), PARTNER.DELETED_AT.isNull)
+					.execute()
+				if (deleted == 1) counts.updated++ else counts.skipped++
 			} else {
 				upsert(
 					report, "partner", PARTNER, rs.uuid("id"),
-					mapOf(PARTNER.NAME to rs.getString("name").trim(), PARTNER.WEBSITE to rs.getString("website")),
+					mapOf(PARTNER.NAME to rs.getString("name").trim(), PARTNER.WEBSITE to rs.getString("website"), PARTNER.DELETED_AT to null),
 				)
 			}
 		}.list()

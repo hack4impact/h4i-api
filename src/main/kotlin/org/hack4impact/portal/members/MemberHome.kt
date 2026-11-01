@@ -8,7 +8,7 @@ import org.hack4impact.portal.db.tables.references.CHAPTER
 import org.hack4impact.portal.db.tables.references.CHAPTER_MEMBERSHIP
 import org.hack4impact.portal.db.tables.references.PERSON
 import org.hack4impact.portal.db.tables.references.TOOL_ACCOUNT
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.tools.ToolRegistry
 import org.jooq.DSLContext
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -41,15 +41,15 @@ data class MyAccount(val tool: String, val login: String?, val state: String)
 data class MyAgreement(val id: UUID, val name: String, val status: String, val signedAt: OffsetDateTime?, val hasPdf: Boolean)
 
 @Component
-class MemberHomeQueries(private val dsl: DSLContext) {
+class MemberHomeQueries(private val dsl: DSLContext, private val tools: ToolRegistry) {
 	fun home(person: UUID, viewer: Viewer): MemberHome {
 		val p = dsl.selectFrom(PERSON).where(PERSON.ID.eq(person)).fetchSingle()
 		val chapters = dsl.select(CHAPTER.ID, CHAPTER.CODE, CHAPTER.NAME).from(CHAPTER_MEMBERSHIP).join(CHAPTER).on(CHAPTER.ID.eq(CHAPTER_MEMBERSHIP.CHAPTER_ID))
 			.where(CHAPTER_MEMBERSHIP.PERSON_ID.eq(person), CHAPTER_MEMBERSHIP.LEFT_ON.isNull, CHAPTER.DELETED_AT.isNull).orderBy(CHAPTER.NAME).fetch()
 			.map { MyChapter(it.value2()!!, it.value3()!!, viewer.chapterRoles[it.value1()]) }
-		// Accounts of tools this app knows, in list order.
+		// Accounts of tools this app knows people have accounts in, in list order.
 		val accounts = dsl.select(TOOL_ACCOUNT.TOOL, TOOL_ACCOUNT.EXTERNAL_LOGIN, TOOL_ACCOUNT.STATE).from(TOOL_ACCOUNT).where(TOOL_ACCOUNT.PERSON_ID.eq(person)).fetch()
-			.mapNotNull { a -> Tool.fromKey(a.value1())?.let { it to MyAccount(it.key, a.value2(), a.value3()!!) } }
+			.mapNotNull { a -> tools.find(a.value1())?.takeIf { it.accounts }?.let { it to MyAccount(it.key, a.value2(), a.value3()!!) } }
 			.sortedBy { it.first.order }.map { it.second }
 		val agreements = dsl.select(AGREEMENT.ID, AGREEMENT_TEMPLATE.NAME, AGREEMENT.STATUS, AGREEMENT.SIGNED_AT, AGREEMENT.PDF_LOCATION)
 			.from(AGREEMENT).join(AGREEMENT_TEMPLATE).on(AGREEMENT_TEMPLATE.ID.eq(AGREEMENT.TEMPLATE_ID))

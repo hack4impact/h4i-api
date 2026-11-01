@@ -2,7 +2,7 @@ package org.hack4impact.portal.adapters
 
 import org.hack4impact.portal.adapters.google.GoogleAccounts
 import org.hack4impact.portal.adapters.google.GoogleServiceAccountToken
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -15,7 +15,25 @@ import java.io.File
  * dashes, e.g. `PORTAL_ADAPTERS_GOOGLE_ENABLED`. Keys can be given inline or as a file path.
  */
 @ConfigurationProperties("portal.adapters")
-data class AdapterProperties(val google: Google = Google(), val documenso: Documenso = Documenso()) {
+data class AdapterProperties(
+	val github: GitHub = GitHub(),
+	val google: Google = Google(),
+	val vaultwarden: Vaultwarden = Vaultwarden(),
+	val documenso: Documenso = Documenso(),
+) {
+	/** The GitHub App on the national org (stage 2: teams and org invites; the adapters come in package 3-GitHub). */
+	data class GitHub(
+		val enabled: Boolean = false,
+		val baseUrl: String = "https://api.github.com",
+		/** The national organization (wiki decision 78). */
+		val org: String = "",
+		val appId: String = "",
+		val installationId: String = "",
+		val privateKey: String = "",
+		/** Also change GitHub; the App then needs Members: Read and write. */
+		val write: Boolean = false,
+	)
+
 	data class Google(
 		val enabled: Boolean = false,
 		val baseUrl: String = "https://admin.googleapis.com",
@@ -38,6 +56,21 @@ data class AdapterProperties(val google: Google = Google(), val documenso: Docum
 		val token: String = "",
 		val webhookSecret: String = "",
 		val write: Boolean = false,
+	)
+
+	/** `vault.hack4impact.org` (stage 2: project collections; the adapters come in package 3-Vaultwarden). */
+	data class Vaultwarden(
+		val enabled: Boolean = false,
+		val baseUrl: String = "",
+		val organizationId: String = "",
+		val clientId: String = "",
+		val clientSecret: String = "",
+		val deviceId: String = "h4i-portal",
+		/** Local testing only: a CA certificate (PEM path) to trust instead of the JDK's. */
+		val trustedCertificate: String = "",
+		/** Also change Vaultwarden: needs the service admin's [masterPassword] to unlock the organization key. */
+		val write: Boolean = false,
+		val masterPassword: String = "",
 	)
 }
 

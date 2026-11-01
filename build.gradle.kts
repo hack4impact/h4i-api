@@ -124,6 +124,24 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 	}
 }
 
+// The resolver decides who gets access to what, so every branch must be tested (stage 2 package 2, from the full portal).
+val coverageCheck = tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+	violationRules {
+		rule {
+			element = "PACKAGE"
+			includes = listOf("org.hack4impact.portal.resolver")
+			limit {
+				counter = "BRANCH"
+				minimum = "1.0".toBigDecimal()
+			}
+		}
+	}
+}
+
+tasks.named("check") {
+	dependsOn(coverageCheck)
+}
+
 // `./gradlew bootRun -PenvFile=<file>` loads NAME="value" lines, the format deploy/fetch-secrets.sh writes
 // (JSON-quoted, so multi-line keys survive), into the app's environment.
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {

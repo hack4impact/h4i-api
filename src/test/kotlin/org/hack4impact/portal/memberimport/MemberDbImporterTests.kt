@@ -147,6 +147,43 @@ class MemberDbImporterTests(
 	}
 
 	@Test
+	fun `a partner deleted in the member database after its import is deleted here, and restored with it`() {
+		MemberDbFixture.resetWritable()
+		val source = JdbcClient.create(readOnly(MemberDbFixture.writable))
+		val memberDb = JdbcClient.create(org.springframework.jdbc.datasource.DriverManagerDataSource(MemberDbFixture.writable.url, MemberDbFixture.writable.username, MemberDbFixture.writable.password))
+		fun import() = transactions.execute { importer.import(source) }!!
+		val rise = UUID.fromString("40000000-0000-0000-0000-000000000001")
+		fun deletedAt() = dsl.select(PARTNER.DELETED_AT).from(PARTNER).where(PARTNER.SOURCE_ID.eq(rise)).fetchSingle().value1()
+		import()
+		assertNull(deletedAt())
+
+		memberDb.sql("UPDATE partners SET deleted_at = '2026-11-01T12:00:00Z' WHERE id = ?").param(rise).update()
+		import()
+		val deleted = deletedAt()
+		assertEquals(OffsetDateTime.parse("2026-11-01T12:00:00Z").toInstant(), deleted?.toInstant())
+		import()
+		assertEquals(deleted, deletedAt()) // already deleted: left as it is
+
+		memberDb.sql("UPDATE partners SET deleted_at = NULL WHERE id = ?").param(rise).update()
+		import()
+		assertNull(deletedAt()) // the deletion wasn't an edit in the portal, so the import may undo it
+	}
+
+	@Test
+	fun `a partner whose name differs only in case from one already here is skipped and reported`() {
+		dsl.insertInto(PARTNER).set(PARTNER.NAME, "Rise dc").execute() // added by national before the import, no source_id
+
+		val report = runImport()
+
+		with(report.counts("partner")) {
+			assertEquals(1, inserted) // Food Bank
+			assertEquals(2, skipped) // RISE DC refused, Gone Partner deleted
+		}
+		assertTrue(report.issues.any { it.entity == "partner" && it.sourceId == "40000000-0000-0000-0000-000000000001" && "rejected by the portal schema" in it.message })
+		assertEquals(listOf("Rise dc"), dsl.select(PARTNER.NAME).from(PARTNER).where(org.jooq.impl.DSL.lower(PARTNER.NAME).eq("rise dc")).fetch(PARTNER.NAME))
+	}
+
+	@Test
 	fun `running twice changes nothing new`() {
 		runImport()
 		val second = runImport()

@@ -2,7 +2,7 @@ package org.hack4impact.portal.registration
 
 import org.hack4impact.portal.adapters.HttpJson
 import org.hack4impact.portal.adapters.text
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.stereotype.Component
 

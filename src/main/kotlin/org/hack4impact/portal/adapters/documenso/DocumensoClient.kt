@@ -3,7 +3,7 @@ package org.hack4impact.portal.adapters.documenso
 import org.hack4impact.portal.adapters.HttpJson
 import org.hack4impact.portal.adapters.Rejected
 import org.hack4impact.portal.adapters.text
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import java.util.concurrent.ConcurrentHashMap
 
 /**

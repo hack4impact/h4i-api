@@ -1,10 +1,13 @@
 package org.hack4impact.portal
 
+import org.hack4impact.portal.db.tables.references.TOOL_SETTING
+import org.hack4impact.portal.tools.ToolRegistry
 import org.jooq.DSLContext
 
 /**
  * Empties every portal table, for tests that need a clean database, then puts back what the migrations seed (V4's
- * national resource template; the truncate would take it with `chapter` through its foreign key anyway).
+ * national resource template; the truncate would take it with `chapter` through its foreign key anyway) and what
+ * the app adds at startup (each syncing tool's settings row, in dry run, as `ToolSettingsBootstrap` does).
  */
 fun DSLContext.emptyPortalTables() {
 	val keep = setOf("flyway_schema_history")
@@ -30,4 +33,5 @@ fun DSLContext.emptyPortalTables() {
 			(4, 'vaultwarden', '{chapter}-{project}', 'write', true, '{eng}')
 		""".trimIndent(),
 	)
+	ToolRegistry.BUILT_IN.filter { it.syncs }.forEach { insertInto(TOOL_SETTING).set(TOOL_SETTING.TOOL, it.key).execute() }
 }

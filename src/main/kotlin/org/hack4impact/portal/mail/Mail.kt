@@ -4,7 +4,7 @@ import org.hack4impact.portal.adapters.AdapterProperties
 import org.hack4impact.portal.adapters.HttpJson
 import org.hack4impact.portal.adapters.google.GoogleServiceAccountToken
 import org.hack4impact.portal.db.tables.references.EMAIL_MESSAGE
-import org.hack4impact.portal.tools.Tool
+import org.hack4impact.portal.resolver.Tool
 import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
