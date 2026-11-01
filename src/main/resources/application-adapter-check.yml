@@ -1,0 +1,10 @@
+# Read-only check of every enabled tool adapter: lists accounts, resources and a few resources' members, and exits
+# (1 if a tool can't be read). Stage 2: each tool's adapter-check against its sandbox.
+#   ./gradlew bootRun -PenvFile=<file> --args='--spring.profiles.active=adapter-check'
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  adapters:
+    check: true
