@@ -526,7 +526,8 @@ The integration with the national member database: pulls on a schedule, writes b
   - `dryRun` and `paused` (with `pauseReason`): switches national controls.
   - The last pull's time, status and error.
   - `waiting` and `failed` writes (up to 500 each), and `drift`.
-- **`PUT /api/national/member-db`** with body `{"dryRun": true, "paused": false, "reason": null}`. Returns the status.
+  - *Stage 2:* `projectsEnabled`, and `projectWrites` and `leadershipWrites`: `[{"id", "name", "state", "requestedAt", "attempts", "nextTryAt", "lastError", "waitingOn"}]`, waiting or failed. `id` is the project's or the chapter role's; `waitingOn` names the people whose own records must be written first.
+- **`PUT /api/national/member-db`** with body `{"dryRun": true, "paused": false, "reason": null, "projectsEnabled": false}`. Returns the status. `projectsEnabled` (stage 2) left out keeps its value. While it's off, project and leadership writes are queued and previewable but not written; person writes go on. Turning it on the first time queues every open chapter lead and co-lead.
   - `409` "The write switch (PORTAL_MEMBERDB_WRITE) isn't set on this server, so it stays in dry run": leaving dry run without the server switch.
   - `400` "Say why it's paused": `paused: true` without a reason.
   - Audited.
@@ -541,6 +542,8 @@ The integration with the national member database: pulls on a schedule, writes b
   ```
   `409` when not configured, or when the person can't be written (the reason is in `detail`).
 - **`POST /api/national/member-db/writes/{personId}/retry`** puts a failed write back in line with a fresh attempt count. Returns the status. `404` "Nothing to write for them". Audited.
+- *Stage 2:* **`GET /api/national/member-db/projects/{id}/preview`** and **`GET /api/national/member-db/leadership/{chapterRoleId}/preview`** → `{"fields", "notes", "waitingOn"}`: what a project's write (its `projects` row, engagement, team and, the first time, its partner) or a chapter lead's write would send now. A draft project, or a viewer's role, has a note and no fields. `waitingOn` names who must be written first. `404` unknown; `409` not configured, or a write that can't be made (the reason is in `detail`).
+- *Stage 2:* **`POST /api/national/member-db/projects/{id}/retry`** and **`POST /api/national/member-db/leadership/{chapterRoleId}/retry`** → `204`: back in line with a fresh count. `404` "Nothing to write for that project" or "…that role". Audited.
 
 #### Agreement templates
 

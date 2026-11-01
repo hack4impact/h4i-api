@@ -58,6 +58,35 @@ END $$;
 
 COMMIT;
 
+-- Stage 2 (wiki: staged-rollout-stage-2, stage-2-migrations): projects, their teams and chapter leads are written too.
+-- Safe to run twice. The grants are in member-db-stage2-grants.sql.
+BEGIN;
+
+-- 5. projects.status_valid rejects 'draft' and 'approved' (it lists the literal strings 'draft::text' and
+--    'approved::text'). Rebuilt with the intended values; NOT VALID, as before, so existing rows aren't rechecked.
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS status_valid;
+ALTER TABLE projects ADD CONSTRAINT status_valid
+	CHECK (status IN ('draft', 'approved', 'active', 'inactive', 'suspended', 'completed')) NOT VALID;
+
+-- 6. leadership_assignments can't say who leads where: add the volunteer and the chapter (decision 171).
+ALTER TABLE leadership_assignments ADD COLUMN IF NOT EXISTS volunteer_id uuid;
+ALTER TABLE leadership_assignments ADD COLUMN IF NOT EXISTS chapter_id uuid;
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'leadership_assignments_volunteer_fkey') THEN
+		ALTER TABLE leadership_assignments ADD CONSTRAINT leadership_assignments_volunteer_fkey FOREIGN KEY (volunteer_id) REFERENCES volunteers (id);
+	END IF;
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'leadership_assignments_chapter_fkey') THEN
+		ALTER TABLE leadership_assignments ADD CONSTRAINT leadership_assignments_chapter_fkey FOREIGN KEY (chapter_id) REFERENCES chapters (id);
+	END IF;
+END $$;
+
+-- 7. The two roles the portal writes: a chapter's lead and co-lead.
+INSERT INTO leadership_roles (name) SELECT 'Chapter lead' WHERE NOT EXISTS (SELECT 1 FROM leadership_roles WHERE name = 'Chapter lead');
+INSERT INTO leadership_roles (name) SELECT 'Co-lead' WHERE NOT EXISTS (SELECT 1 FROM leadership_roles WHERE name = 'Co-lead');
+
+COMMIT;
+
 -- 4. Suggested, not required (each its own decision for Khoa):
 --  a. The portal's login, with no DELETE:
 --       CREATE ROLE portal_sync LOGIN PASSWORD '<generated>';
@@ -73,7 +102,6 @@ COMMIT;
 --       CREATE UNIQUE INDEX volunteers_org_email_key ON volunteers (lower(org_email)) WHERE deleted_at IS NULL;
 --  d. academic_terms has no updated_at (so the portal also counts its rows to notice changes). Adding one, with the
 --     trigger from part 3, would make it like the other tables.
---  e. Later stages: leadership_assignments needs volunteer_id and chapter_id; the projects status check allows the
---     literal strings 'draft::text' and 'approved::text' (wiki: member-database, problems 1 and 2); the providers
---     check needs 'vaultwarden' and 'documenso' when those accounts are written.
+--  e. Later stages: the providers check needs 'vaultwarden' and 'documenso' when those accounts are written. (The
+--     projects status check and leadership_assignments' columns are parts 5 and 6.)
 --  f. Validate the NOT VALID constraints once the rows they'd reject are fixed (wiki: member-database, problem 4).

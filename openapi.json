@@ -788,6 +788,9 @@
           "paused" : {
             "type" : "boolean"
           },
+          "projectsEnabled" : {
+            "type" : [ "boolean", "null" ]
+          },
           "reason" : {
             "type" : [ "string", "null" ]
           }
@@ -839,6 +842,42 @@
         },
         "type" : "object"
       },
+      "MemberDbQueueRow" : {
+        "properties" : {
+          "attempts" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "lastError" : {
+            "type" : [ "string", "null" ]
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "nextTryAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "requestedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          },
+          "waitingOn" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
       "MemberDbStatus" : {
         "properties" : {
           "configured" : {
@@ -869,10 +908,25 @@
           "lastPullStatus" : {
             "type" : [ "string", "null" ]
           },
+          "leadershipWrites" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MemberDbQueueRow"
+            },
+            "type" : "array"
+          },
           "pauseReason" : {
             "type" : [ "string", "null" ]
           },
           "paused" : {
+            "type" : "boolean"
+          },
+          "projectWrites" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MemberDbQueueRow"
+            },
+            "type" : "array"
+          },
+          "projectsEnabled" : {
             "type" : "boolean"
           },
           "scheduledPull" : {
@@ -886,6 +940,29 @@
           },
           "writeSwitch" : {
             "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "MemberDbWritePreview" : {
+        "properties" : {
+          "fields" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "notes" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "waitingOn" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
           }
         },
         "type" : "object"
@@ -3792,6 +3869,100 @@
               }
             },
             "description" : "OK"
+          }
+        },
+        "tags" : [ "member-db-controller" ]
+      }
+    },
+    "/api/national/member-db/leadership/{chapterRoleId}/preview" : {
+      "get" : {
+        "operationId" : "previewLeadership",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "chapterRoleId",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MemberDbWritePreview"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "member-db-controller" ]
+      }
+    },
+    "/api/national/member-db/leadership/{chapterRoleId}/retry" : {
+      "post" : {
+        "operationId" : "retryLeadership",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "chapterRoleId",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "member-db-controller" ]
+      }
+    },
+    "/api/national/member-db/projects/{id}/preview" : {
+      "get" : {
+        "operationId" : "previewProject",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MemberDbWritePreview"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "member-db-controller" ]
+      }
+    },
+    "/api/national/member-db/projects/{id}/retry" : {
+      "post" : {
+        "operationId" : "retryProject",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
           }
         },
         "tags" : [ "member-db-controller" ]

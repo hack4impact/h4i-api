@@ -42,7 +42,7 @@ data class GrantProperties(
  * entered by hand). Finds the person by their @hack4impact.org address, or creates them if names are given.
  */
 @Component
-class GrantRole(private val dsl: DSLContext, private val transactions: TransactionTemplate) {
+class GrantRole(private val dsl: DSLContext, private val transactions: TransactionTemplate, private val memberDb: org.hack4impact.portal.memberdb.MemberDbWrites) {
 
 	fun grant(p: GrantProperties): String = transactions.execute {
 		val email = p.email.trim().lowercase()
@@ -60,13 +60,14 @@ class GrantRole(private val dsl: DSLContext, private val transactions: Transacti
 			// One role per person per chapter: end any other active role there first.
 			dsl.update(CHAPTER_ROLE).set(CHAPTER_ROLE.ENDS_AT, now)
 				.where(CHAPTER_ROLE.PERSON_ID.eq(personId), CHAPTER_ROLE.CHAPTER_ID.eq(chapterId), CHAPTER_ROLE.ENDS_AT.isNull, CHAPTER_ROLE.ROLE.ne(p.role))
-				.execute()
+				.returningResult(CHAPTER_ROLE.ID).fetch().forEach { memberDb.requestLeadership(it.value1()!!) } // ended in the member database too
 			val exists = dsl.fetchExists(CHAPTER_ROLE, CHAPTER_ROLE.PERSON_ID.eq(personId).and(CHAPTER_ROLE.CHAPTER_ID.eq(chapterId)).and(CHAPTER_ROLE.ROLE.eq(p.role)).and(CHAPTER_ROLE.ENDS_AT.isNull))
 			if (!exists) {
 				dsl.insertInto(CHAPTER_ROLE)
 					.set(CHAPTER_ROLE.PERSON_ID, personId).set(CHAPTER_ROLE.CHAPTER_ID, chapterId).set(CHAPTER_ROLE.ROLE, p.role)
 					.set(CHAPTER_ROLE.TITLE, p.title.ifBlank { null })
-					.execute()
+					.returningResult(CHAPTER_ROLE.ID).fetchSingle().value1()!!
+					.let { memberDb.requestLeadership(it) } // a lead or co-lead goes to the member database (decision 171); a viewer is skipped
 			}
 			dsl.insertInto(CHAPTER_MEMBERSHIP).set(CHAPTER_MEMBERSHIP.PERSON_ID, personId).set(CHAPTER_MEMBERSHIP.CHAPTER_ID, chapterId).onConflictDoNothing().execute()
 			audit(personId, chapterId, "chapter_role.grant", mapOf("email" to email, "role" to p.role))

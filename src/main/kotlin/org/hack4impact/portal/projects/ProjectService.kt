@@ -40,6 +40,7 @@ class ProjectService(
 	private val past: PastProjects,
 	private val agreements: org.hack4impact.portal.agreements.AgreementRequests,
 	private val queue: org.hack4impact.portal.national.AdminQueue,
+	private val memberDb: org.hack4impact.portal.memberdb.MemberDbWrites,
 ) {
 	private val json = JsonMapper.builder().build()
 
@@ -122,6 +123,7 @@ class ProjectService(
 			}
 			.where(PROJECT.ID.eq(project.id)).execute()
 		audit(viewer, chapterId, project.id!!, "project.update", "Edited the project details")
+		memberDb.requestProject(project.id!!) // the member database follows (package 7); a draft is skipped until it starts
 	}
 
 	@Transactional
@@ -138,6 +140,7 @@ class ProjectService(
 			.apply { if (to == "active" && project.startsOn == null) set(PROJECT.STARTS_ON, LocalDate.now()) }
 			.where(PROJECT.ID.eq(project.id)).execute()
 		audit(viewer, chapterId, project.id!!, "project.status", "Changed status from $from to $to")
+		memberDb.requestProject(project.id!!)
 		if (to == "active") agreements.request(project.id!!) // members added while it was a draft get theirs now
 	}
 
@@ -157,6 +160,7 @@ class ProjectService(
 			.set(PROJECT_MEMBER.PROJECT_ROLE_ID, role).set(PROJECT_MEMBER.ADDED_BY, viewer.personId).execute()
 		touch(project)
 		audit(viewer, chapterId, project.id!!, "project.member_add", "Added ${ProjectQueries.name(person.value3(), person.value1()!!, person.value2()!!)}")
+		memberDb.requestProject(project.id!!)
 		agreements.request(project.id!!) // PRD: the project agreement is sent on assignment (a live project only)
 	}
 
@@ -168,6 +172,7 @@ class ProjectService(
 		if (updated == 0) throw ResponseStatusException(HttpStatus.NOT_FOUND, "Not on this project")
 		touch(project)
 		audit(viewer, chapterId, project.id!!, "project.member_role", "Changed ${personName(personId)}'s role")
+		memberDb.requestProject(project.id!!)
 	}
 
 	@Transactional
@@ -177,6 +182,7 @@ class ProjectService(
 		if (updated == 0) throw ResponseStatusException(HttpStatus.NOT_FOUND, "Not on this project")
 		touch(project)
 		audit(viewer, chapterId, project.id!!, "project.member_remove", "Removed ${personName(personId)}")
+		memberDb.requestProject(project.id!!)
 	}
 
 	@Transactional

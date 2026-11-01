@@ -3,6 +3,10 @@ package org.hack4impact.portal.memberdb
 import org.hack4impact.portal.auth.Viewer
 import org.hack4impact.portal.auth.Viewers
 import org.hack4impact.portal.db.tables.references.AUDIT_EVENT
+import org.hack4impact.portal.db.tables.references.CHAPTER_ROLE
+import org.hack4impact.portal.db.tables.references.MEMBER_DB_LEADERSHIP_WRITE
+import org.hack4impact.portal.db.tables.references.MEMBER_DB_PROJECT_WRITE
+import org.hack4impact.portal.db.tables.references.PROJECT
 import org.hack4impact.portal.db.tables.references.MEMBER_DB_DRIFT
 import org.hack4impact.portal.db.tables.references.MEMBER_DB_STATE
 import org.hack4impact.portal.db.tables.references.MEMBER_DB_WRITE
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import tools.jackson.databind.json.JsonMapper
@@ -43,6 +48,23 @@ data class MemberDbStatus(
 	val waiting: List<MemberDbWriteRow>,
 	val failed: List<MemberDbWriteRow>,
 	val drift: List<MemberDbDriftRow>,
+	/** Stage 2: project and leadership writes are on (beside the switches above). Off: queued and previewable, not written. */
+	val projectsEnabled: Boolean = false,
+	val projectWrites: List<MemberDbQueueRow> = emptyList(),
+	val leadershipWrites: List<MemberDbQueueRow> = emptyList(),
+)
+
+/** A project or chapter-lead write waiting or failed: [id] is the project's or the chapter role's; [waitingOn] whose own record must be written first. */
+data class MemberDbQueueRow(
+	val id: UUID,
+	val name: String,
+	/** pending or failed. */
+	val state: String,
+	val requestedAt: OffsetDateTime,
+	val attempts: Int,
+	val nextTryAt: OffsetDateTime?,
+	val lastError: String?,
+	val waitingOn: List<String>,
 )
 
 data class MemberDbWriteRow(val personId: UUID, val name: String, val requestedAt: OffsetDateTime, val attempts: Int, val nextTryAt: OffsetDateTime?, val lastError: String?)
@@ -50,8 +72,11 @@ data class MemberDbWriteRow(val personId: UUID, val name: String, val requestedA
 /** [field] as `table.column` (`volunteers.email`); [since] when it was first seen. */
 data class MemberDbDriftRow(val personId: UUID, val name: String, val field: String, val portalValue: String?, val memberDbValue: String?, val since: OffsetDateTime)
 
-/** Leaving dry run needs the write switch; pausing needs a reason. */
-data class MemberDbChange(val dryRun: Boolean, val paused: Boolean, val reason: String? = null)
+/** Leaving dry run needs the write switch; pausing needs a reason. [projectsEnabled]: left out, unchanged (stage 2). */
+data class MemberDbChange(val dryRun: Boolean, val paused: Boolean, val reason: String? = null, val projectsEnabled: Boolean? = null)
+
+/** What a project or chapter-lead write would send: [fields] as `table.column`, [notes] what's left out and why, [waitingOn] who goes first. */
+data class MemberDbWritePreview(val fields: Map<String, String?>, val notes: List<String>, val waitingOn: List<String>)
 
 /** What would be written for one person: [fields] as `table.column`, [notes] what's left out and why. */
 data class MemberDbPreview(val newVolunteer: Boolean, val fields: Map<String, String?>, val notes: List<String>)
@@ -66,6 +91,7 @@ class MemberDbController(
 	private val writer: MemberDbWriter,
 	private val pull: MemberDbPull,
 	private val writes: MemberDbWrites,
+	private val projectWriter: MemberDbProjectWriter,
 ) {
 	private val json = JsonMapper.builder().build()
 
@@ -85,12 +111,17 @@ class MemberDbController(
 		}
 		val reason = change.reason?.trim()?.ifEmpty { null }
 		if (change.paused && reason == null) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Say why it's paused")
+		val wasEnabled = dsl.select(MEMBER_DB_STATE.PROJECTS_ENABLED).from(MEMBER_DB_STATE).fetchOne()?.value1() == true
+		val enabled = change.projectsEnabled ?: wasEnabled
 		dsl.insertInto(MEMBER_DB_STATE).set(MEMBER_DB_STATE.ID, true).set(MEMBER_DB_STATE.DRY_RUN, change.dryRun).set(MEMBER_DB_STATE.PAUSED, change.paused)
-			.set(MEMBER_DB_STATE.PAUSE_REASON, if (change.paused) reason else null)
+			.set(MEMBER_DB_STATE.PAUSE_REASON, if (change.paused) reason else null).set(MEMBER_DB_STATE.PROJECTS_ENABLED, enabled)
 			.onConflict(MEMBER_DB_STATE.ID).doUpdate()
 			.set(MEMBER_DB_STATE.DRY_RUN, change.dryRun).set(MEMBER_DB_STATE.PAUSED, change.paused).set(MEMBER_DB_STATE.PAUSE_REASON, if (change.paused) reason else null)
+			.set(MEMBER_DB_STATE.PROJECTS_ENABLED, enabled)
 			.execute()
-		audit(viewer, "member_db.settings", mapOf("dryRun" to change.dryRun, "paused" to change.paused, "reason" to reason))
+		// Turned on: every open chapter lead and co-lead is queued once (decision 171's backfill).
+		val backfilled = if (enabled && !wasEnabled) writes.requestAllLeadership() else 0
+		audit(viewer, "member_db.settings", mapOf("dryRun" to change.dryRun, "paused" to change.paused, "reason" to reason, "projectsEnabled" to enabled, "leadsQueued" to backfilled))
 		return status()
 	}
 
@@ -125,6 +156,59 @@ class MemberDbController(
 		return MemberDbPreview(plan.newVolunteer, plan.fields, plan.notes)
 	}
 
+	/** Stage 2: what a project's write would send now. */
+	@GetMapping("/projects/{id}/preview")
+	fun previewProject(@AuthenticationPrincipal user: OidcUser, @PathVariable id: UUID): MemberDbWritePreview {
+		national(user)
+		if (!dsl.fetchExists(PROJECT, PROJECT.ID.eq(id))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "No such project")
+		return preview { projectWriter.planProject(id).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip) + it.notes, emptyList()) } }
+	}
+
+	@PostMapping("/projects/{id}/retry")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	fun retryProject(@AuthenticationPrincipal user: OidcUser, @PathVariable id: UUID) {
+		val viewer = national(user)
+		if (!dsl.fetchExists(MEMBER_DB_PROJECT_WRITE, MEMBER_DB_PROJECT_WRITE.PROJECT_ID.eq(id))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "Nothing to write for that project")
+		writes.requestProject(id)
+		audit(viewer, "member_db.retry_project", mapOf("project" to id.toString()))
+	}
+
+	/** Stage 2: what a chapter lead's write would send now. */
+	@GetMapping("/leadership/{chapterRoleId}/preview")
+	fun previewLeadership(@AuthenticationPrincipal user: OidcUser, @PathVariable chapterRoleId: UUID): MemberDbWritePreview {
+		national(user)
+		if (!dsl.fetchExists(CHAPTER_ROLE, CHAPTER_ROLE.ID.eq(chapterRoleId))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "No such chapter role")
+		return preview { projectWriter.planLeadership(chapterRoleId).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip), emptyList()) } }
+	}
+
+	@PostMapping("/leadership/{chapterRoleId}/retry")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	fun retryLeadership(@AuthenticationPrincipal user: OidcUser, @PathVariable chapterRoleId: UUID) {
+		val viewer = national(user)
+		if (!dsl.fetchExists(MEMBER_DB_LEADERSHIP_WRITE, MEMBER_DB_LEADERSHIP_WRITE.CHAPTER_ROLE_ID.eq(chapterRoleId))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "Nothing to write for that role")
+		writes.requestLeadership(chapterRoleId)
+		audit(viewer, "member_db.retry_leadership", mapOf("chapterRole" to chapterRoleId.toString()))
+	}
+
+	/** A preview: who it waits for instead of what it sends, and a conflict as 409 with its reason. */
+	private fun preview(plan: () -> MemberDbWritePreview): MemberDbWritePreview {
+		if (!memberDb.configured) throw ResponseStatusException(HttpStatus.CONFLICT, "The member database isn't configured on this server (MEMBER_DB_URL)")
+		return try {
+			plan()
+		} catch (e: WaitingOnPeople) {
+			MemberDbWritePreview(emptyMap(), listOf("Waiting for these people's own records to be written first"), names(e.people))
+		} catch (e: MemberDbConflict) {
+			throw ResponseStatusException(HttpStatus.CONFLICT, e.message)
+		}
+	}
+
+	private fun names(ids: Collection<UUID>): List<String> =
+		if (ids.isEmpty()) emptyList() else dsl.select(PERSON.FIRST_NAME, PERSON.LAST_NAME, PERSON.PREFERRED_NAME).from(PERSON).where(PERSON.ID.`in`(ids))
+			.fetch { "${it.value3()?.takeIf { p -> p.isNotBlank() } ?: it.value1()} ${it.value2()}" }.sorted()
+
+	private fun waitingOn(value: JSONB?): List<String> =
+		value?.let { names(json.readTree(it.data()).toList().map { n -> UUID.fromString(n.asString()) }) }.orEmpty()
+
 	private fun status(): MemberDbStatus {
 		val state = dsl.selectFrom(MEMBER_DB_STATE).fetchOne()
 		val name = { first: String?, last: String?, preferred: String? -> "${preferred?.takeIf { it.isNotBlank() } ?: first} $last" }
@@ -144,6 +228,21 @@ class MemberDbController(
 			state?.dryRun ?: true, state?.paused ?: false, state?.pauseReason,
 			state?.lastPullAt, state?.lastPullStatus, state?.lastPullError,
 			rows.filter { it.value5() == "pending" }.map(toRow), rows.filter { it.value5() == "failed" }.map(toRow), drift,
+			projectsEnabled = state?.projectsEnabled ?: false,
+			projectWrites = dsl.select(MEMBER_DB_PROJECT_WRITE.PROJECT_ID, PROJECT.NAME, MEMBER_DB_PROJECT_WRITE.STATE, MEMBER_DB_PROJECT_WRITE.REQUESTED_AT,
+				MEMBER_DB_PROJECT_WRITE.ATTEMPTS, MEMBER_DB_PROJECT_WRITE.NEXT_TRY_AT, MEMBER_DB_PROJECT_WRITE.LAST_ERROR, MEMBER_DB_PROJECT_WRITE.WAITING_ON)
+				.from(MEMBER_DB_PROJECT_WRITE).join(PROJECT).on(PROJECT.ID.eq(MEMBER_DB_PROJECT_WRITE.PROJECT_ID))
+				.where(MEMBER_DB_PROJECT_WRITE.STATE.`in`("pending", "failed")).orderBy(MEMBER_DB_PROJECT_WRITE.REQUESTED_AT).limit(500)
+				.fetch { MemberDbQueueRow(it.value1()!!, it.value2()!!, it.value3()!!, it.value4()!!, it.value5()!!, it.value6(), it.value7(), waitingOn(it.value8())) },
+			leadershipWrites = dsl.select(MEMBER_DB_LEADERSHIP_WRITE.CHAPTER_ROLE_ID, PERSON.FIRST_NAME, PERSON.LAST_NAME, PERSON.PREFERRED_NAME, MEMBER_DB_LEADERSHIP_WRITE.STATE,
+				MEMBER_DB_LEADERSHIP_WRITE.REQUESTED_AT, MEMBER_DB_LEADERSHIP_WRITE.ATTEMPTS, MEMBER_DB_LEADERSHIP_WRITE.NEXT_TRY_AT, MEMBER_DB_LEADERSHIP_WRITE.LAST_ERROR,
+				MEMBER_DB_LEADERSHIP_WRITE.WAITING_ON)
+				.from(MEMBER_DB_LEADERSHIP_WRITE).join(CHAPTER_ROLE).on(CHAPTER_ROLE.ID.eq(MEMBER_DB_LEADERSHIP_WRITE.CHAPTER_ROLE_ID))
+				.join(PERSON).on(PERSON.ID.eq(CHAPTER_ROLE.PERSON_ID))
+				.where(MEMBER_DB_LEADERSHIP_WRITE.STATE.`in`("pending", "failed")).orderBy(MEMBER_DB_LEADERSHIP_WRITE.REQUESTED_AT).limit(500)
+				.fetch {
+					MemberDbQueueRow(it.value1()!!, name(it.value2(), it.value3(), it.value4()), it.value5()!!, it.value6()!!, it.value7()!!, it.value8(), it.value9(), waitingOn(it.value10()))
+				},
 		)
 	}
 
