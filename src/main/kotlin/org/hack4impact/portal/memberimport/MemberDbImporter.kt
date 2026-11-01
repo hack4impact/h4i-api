@@ -3,7 +3,9 @@ package org.hack4impact.portal.memberimport
 import org.hack4impact.portal.db.tables.references.CHAPTER
 import org.hack4impact.portal.db.tables.references.CHAPTER_MEMBERSHIP
 import org.hack4impact.portal.db.tables.references.INSTITUTION
+import org.hack4impact.portal.db.tables.references.PARTNER
 import org.hack4impact.portal.db.tables.references.PERSON
+import org.hack4impact.portal.db.tables.references.PROJECT_ROLE
 import org.hack4impact.portal.db.tables.references.TERM
 import org.hack4impact.portal.db.tables.references.TOOL_ACCOUNT
 import org.jooq.Condition
@@ -22,7 +24,8 @@ import java.util.UUID
 
 /**
  * Copies the national member database into the portal's tables: schools, terms, chapters, people and their tool
- * accounts (stage 1; wiki: staged-rollout). Projects and partners come with stage 2.
+ * accounts (stage 1; wiki: staged-rollout), and the partners and project roles projects pick from (stage 2). Projects
+ * and their teams aren't imported: they're made in the portal (wiki decision 168).
  *
  * The member DB is read-only and incomplete; the portal's data wins. Each row is upserted by
  * `source_id`, and an existing row is only updated while nobody has edited it in the portal
@@ -38,8 +41,10 @@ class MemberDbImporter(private val dsl: DSLContext) {
 		val institutions = importInstitutions(source, report)
 		val terms = importTerms(source, report, institutions)
 		val chapters = importChapters(source, report, institutions)
+		importPartners(source, report)
 		val people = importPeople(source, report, chapters, terms)
 		importToolAccounts(source, report, people)
+		importProjectRoles(source, report)
 		reportLeadership(source, report)
 		return report
 	}
@@ -110,6 +115,23 @@ class MemberDbImporter(private val dsl: DSLContext) {
 			}.list()
 		return sourceMap(CHAPTER)
 	}
+
+	private fun importPartners(source: JdbcClient, report: ImportReport) {
+		val counts = report.counts("partner")
+		source.sql("SELECT id, name, website, deleted_at FROM partners ORDER BY id").query { rs, _ ->
+			counts.read++
+			if (rs.getObject("deleted_at") != null) {
+				counts.skipped++
+			} else {
+				upsert(
+					report, "partner", PARTNER, rs.uuid("id"),
+					mapOf(PARTNER.NAME to rs.getString("name").trim(), PARTNER.WEBSITE to rs.getString("website")),
+				)
+			}
+		}.list()
+	}
+
+	// People --------------------------------------------------------------------------------
 
 	private data class Profile(val email: String?, val termId: UUID?, val updatedAt: OffsetDateTime)
 
@@ -245,6 +267,17 @@ class MemberDbImporter(private val dsl: DSLContext) {
 	}
 
 	// Projects ------------------------------------------------------------------------------
+
+	private fun importProjectRoles(source: JdbcClient, report: ImportReport) {
+		val counts = report.counts("project_role")
+		source.sql("SELECT id, name, is_lead FROM project_roles ORDER BY id").query { rs, _ ->
+			counts.read++
+			upsert(
+				report, "project_role", PROJECT_ROLE, rs.uuid("id"),
+				mapOf(PROJECT_ROLE.NAME to rs.getString("name").trim(), PROJECT_ROLE.IS_LEAD to rs.getBoolean("is_lead")),
+			)
+		}.list()
+	}
 
 	private fun reportLeadership(source: JdbcClient, report: ImportReport) {
 		val n = source.sql("SELECT count(*) FROM leadership_assignments").query(Int::class.java).single()

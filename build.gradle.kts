@@ -100,7 +100,7 @@ tasks.named("compileKotlin") {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
-	// -PupdateApiSpec rewrites web/openapi.json from the live API (see OpenApiSpecTests).
+	// -PupdateApiSpec rewrites openapi.json from the live API (see OpenApiSpecTests).
 	systemProperty("updateApiSpec", providers.gradleProperty("updateApiSpec").isPresent.toString())
 }
 
@@ -133,46 +133,4 @@ tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
 			environment(name.trim(), if (raw.startsWith("\"")) groovy.json.JsonSlurper().parseText(raw) as String else raw)
 		}
 	}
-}
-
-// The React app in web/ is built with npm and packed into the jar as static files (build plan step 5).
-val web = layout.projectDirectory.dir("web")
-
-val npmInstall = tasks.register<Exec>("npmInstall") {
-	group = "web"
-	workingDir = web.asFile
-	commandLine("npm", "ci", "--no-fund", "--no-audit")
-	inputs.file(web.file("package-lock.json"))
-	outputs.file(web.file("node_modules/.package-lock.json"))
-}
-
-val buildWeb = tasks.register<Exec>("buildWeb") {
-	group = "web"
-	description = "Type-checks and builds the web app into web/dist."
-	dependsOn(npmInstall)
-	workingDir = web.asFile
-	commandLine("npm", "run", "build")
-	inputs.dir(web.dir("src"))
-	inputs.files(web.file("index.html"), web.file("vite.config.ts"), web.file("tsconfig.json"), web.file("package.json"), web.file("package-lock.json"))
-	outputs.dir(web.dir("dist"))
-}
-
-val testWeb = tasks.register<Exec>("testWeb") {
-	group = "verification"
-	description = "Runs the web app's tests (Vitest)."
-	dependsOn(npmInstall)
-	workingDir = web.asFile
-	commandLine("npm", "test")
-	inputs.dir(web.dir("src"))
-	// Everything that changes how the tests run, so changing only one of these reruns them (code review W2).
-	inputs.files(web.file("vite.config.ts"), web.file("package.json"), web.file("package-lock.json"), web.file("tsconfig.json"))
-	outputs.upToDateWhen { true }
-}
-
-tasks.named<ProcessResources>("processResources") {
-	from(buildWeb) { into("static") }
-}
-
-tasks.named("check") {
-	dependsOn(testWeb)
 }

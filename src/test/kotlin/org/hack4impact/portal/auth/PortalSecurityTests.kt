@@ -125,12 +125,10 @@ class PortalSecurityTests(
 	}
 
 	@Test
-	fun `deep links serve the web app`() {
-		mvc.get("/chapters/umd/members").andExpect { forwardedUrl("/index.html") }
-		mvc.get("/").andExpect { forwardedUrl("/index.html") }
-		// Every app route loads from a link or a reload (review M10, T4).
-		for (path in listOf("/me", "/chapters/umd", "/chapters/umd/members", "/national", "/join/umd", "/claim/t", "/apply")) {
-			mvc.get(path).andExpect { forwardedUrl("/index.html") }
+	fun `there is no web app here, only the API`() {
+		// The frontend is a separate app (portal.frontend-url); the old app routes are gone.
+		for (path in listOf("/", "/index.html", "/me", "/chapters/umd/members", "/national", "/join/umd", "/claim/t", "/apply")) {
+			mvc.get(path).andExpect { status { isNotFound() } }
 		}
 	}
 
@@ -139,7 +137,7 @@ class PortalSecurityTests(
 		val cookie = mvc.get("/api/me") { with(signedIn("lena@hack4impact.org")) }.andReturn().response.getCookie("XSRF-TOKEN")
 		assert(cookie != null && !cookie.isHttpOnly) { "the app must be able to read the XSRF-TOKEN cookie" }
 		mvc.post("/logout") { with(signedIn("lena@hack4impact.org")) }.andExpect { status { isForbidden() } }
-		mvc.post("/logout") { with(signedIn("lena@hack4impact.org")); with(csrf()) }.andExpect { redirectedUrl("/") }
+		mvc.post("/logout") { with(signedIn("lena@hack4impact.org")); with(csrf()) }.andExpect { redirectedUrl("http://localhost:8080/") } // back to the frontend
 	}
 
 	@Test

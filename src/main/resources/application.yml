@@ -41,6 +41,9 @@ portal:
   # Public address of this deployment, for OAuth redirects, emails and links (wiki decision 31).
   # Staging will probably be https://staging.portal.hack4impact.org; change it here or with PORTAL_BASE_URL only.
   base-url: ${PORTAL_BASE_URL:http://localhost:8080}
+  # This app is API only: the H4I portal's own frontend is the UI. Where people land after sign-in, sign-out, GitHub and
+  # Documenso, and what links in emails point at. That frontend serves /apply, /claim/<token> and /join/<code>?invite=.
+  frontend-url: ${PORTAL_FRONTEND_URL:${portal.base-url}}
   mail:
     # gmail in production (the Gmail API as noreply@, decision 109), smtp for Mailpit (dev: localhost:1026), log in tests.
     mode: ${PORTAL_MAIL_MODE:log}

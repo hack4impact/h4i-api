@@ -24,3 +24,4 @@ class Housekeeping(private val dsl: DSLContext) {
 		"emailCodes" to dsl.execute("DELETE FROM portal.email_code WHERE expires_at < now() - interval '1 day'"),
 		"applicantSessions" to dsl.execute("DELETE FROM portal.applicant_session WHERE expires_at < now() - interval '1 day' OR revoked_at < now() - interval '1 day'"),
 	)
+}

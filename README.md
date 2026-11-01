@@ -12,7 +12,16 @@ On approval or claim, the portal creates the member's `@hack4impact.org` Google 
 
 Copied on 2026-10-13 from `../Membership-Project-Portal` (the full portal: projects, tool access, drafts, automations, adoption, agreements) and cut down to stage 1. The plan is in the wiki: `../Docs/wiki/staged-rollout.md`.
 
-Kotlin + Spring Boot 4 on Java 25, PostgreSQL 17 with Flyway and jOOQ, React with Primer, built with Gradle.
+Kotlin + Spring Boot 4 on Java 25, PostgreSQL 17 with Flyway and jOOQ, built with Gradle.
+
+## API only
+
+Since 2026-10-31 this app has no UI: it's the backend the H4I portal's own frontend calls. Everything is under `/api` (plus Google sign-in at `/oauth2/authorization/google` and `/logout`). The pages named above live in that frontend.
+
+- **Docs:** [docs/API.md](docs/API.md), every endpoint with its access rules, errors, side effects and flows; [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md), running it next to the frontend.
+- **Contract:** [openapi.json](openapi.json), checked against the live API by `OpenApiSpecTests` (regenerate with `./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec`). Generate the frontend's client from it.
+- **The frontend must serve** `/apply` (also `?github=failed` and `?signed=<kind>`), `/claim/<token>`, `/join/<chapter>?invite=<token>`, and `/` (also `?signin=denied`), at `PORTAL_FRONTEND_URL`: email links and redirects point there.
+- **Sign-in is cookies:** the Google session (`JSESSIONID`), the applicant session (`h4i_applicant`, path `/api/apply`) and the CSRF token (`XSRF-TOKEN`, sent back as `X-XSRF-TOKEN` on writes). They work when the frontend and this API share one site, e.g. the frontend's server proxies `/api`, `/oauth2`, `/login/oauth2` and `/logout` here. There's no CORS set up for calls from another origin.
 
 ## The member database
 
@@ -33,13 +42,11 @@ Settled 2026-10-14 (wiki: staged-rollout, decisions 159 and 162):
 ## Run locally
 
 ```sh
-./gradlew build                   # generate jOOQ classes, compile, run tests (backend and web)
-./gradlew bootRun                 # starts compose.yaml (Postgres, a fake member DB, Mailpit), then the app on http://localhost:8080
+./gradlew build                   # generate jOOQ classes, compile, run tests
+./gradlew bootRun                 # starts compose.yaml (Postgres, a fake member DB, Mailpit), then the API on http://localhost:8080
 ```
 
-It uses the same local ports as the full portal (8080, Mailpit on 1026/8026, the fake member DB on 5433), so run one at a time.
-
-How to test it, automated and by hand: [TESTING.md](TESTING.md).
+It uses the same local ports as the full portal (8080, Mailpit on 1026/8026, the fake member DB on 5433), so run one at a time. With a frontend, sign-in and test data: [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md).
 
 ## Database
 
@@ -73,7 +80,9 @@ Chapter leads and national admins are entered in the portal (the member DB can't
 
 | Setting | What |
 | --- | --- |
-| `PORTAL_BASE_URL`, `PORTAL_JOIN_BASE_URL` | Where the app and the join links live |
+| `PORTAL_BASE_URL` | Where this API lives (OAuth callbacks, the Documenso webhook) |
+| `PORTAL_FRONTEND_URL` | The frontend that uses this API: links in emails and the redirects after sign-in, sign-out, GitHub and Documenso go there (defaults to `PORTAL_BASE_URL`) |
+| `PORTAL_JOIN_BASE_URL` | Where the chapter join links live |
 | `PORTAL_GOOGLE_CLIENT_ID`, `PORTAL_GOOGLE_CLIENT_SECRET` | Google sign-in for leads, national and members |
 | `PORTAL_GITHUBOAUTH_CLIENTID`, `PORTAL_GITHUBOAUTH_CLIENTSECRET` | GitHub sign-in for applicants |
 | `PORTAL_ADAPTERS_GOOGLE_*` | Creating members' Google accounts (`ENABLED`, `CREATEACCOUNTS`, `ADMINSUBJECT`, `SERVICEACCOUNTKEY`, `USERSCOPE`) |
@@ -94,7 +103,7 @@ Before going live (and after changing settings), check the deployment with its r
 
 It prints one line per check (OK, WARN or FAIL) and exits 1 if anything failed:
 
-- **Portal:** the public address, Google and GitHub sign-in set, email not in `log` mode, at least one national admin.
+- **Portal:** the public address and the frontend's, Google and GitHub sign-in set, email not in `log` mode, at least one national admin.
 - **Member database:** the connection, the change check, `SELECT` on the six tables it reads, `INSERT` and `UPDATE` on the three it writes, no `DELETE`, Khoa's changes (`scripts/member-db-changes.sql`: keys, unique accounts, `updated_at` triggers), and the switches.
 - **Google:** the service account can look up the admin; a sandbox org-unit scope is flagged.
 - **Documenso:** each active template is a template with a signer; the webhook secret.

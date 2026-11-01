@@ -45,7 +45,7 @@ class MemberProvisioning(
 	private val transactions: TransactionTemplate,
 	private val memberDb: org.hack4impact.portal.memberdb.MemberDbWrites,
 	private val agreements: org.hack4impact.portal.agreements.AgreementService,
-	@Value("\${portal.base-url}") private val baseUrl: String,
+	@Value("\${portal.frontend-url}") private val frontendUrl: String,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -79,7 +79,7 @@ class MemberProvisioning(
 		val account = googleAccount(person, r)
 		val name = r.preferredName?.takeIf { it.isNotBlank() } ?: r.firstName ?: "there"
 		val chapterName = dsl.select(CHAPTER.NAME).from(CHAPTER).where(CHAPTER.ID.eq(r.chapterId)).fetchSingle().value1()!!
-		val email = if (r.kind == "claim") Emails.claimed(name, account, baseUrl) else Emails.approved(name, chapterName, account, baseUrl)
+		val email = if (r.kind == "claim") Emails.claimed(name, account, frontendUrl) else Emails.approved(name, chapterName, account, frontendUrl)
 		listOfNotNull(r.personalEmail, r.schoolEmail).distinct().forEach { mailer.send(email, it, registration, person) }
 		return person
 	}

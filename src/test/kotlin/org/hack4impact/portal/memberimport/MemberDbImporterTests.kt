@@ -6,7 +6,11 @@ import org.hack4impact.portal.db.tables.references.AUDIT_EVENT
 import org.hack4impact.portal.db.tables.references.CHAPTER
 import org.hack4impact.portal.db.tables.references.CHAPTER_MEMBERSHIP
 import org.hack4impact.portal.db.tables.references.IMPORT_RUN
+import org.hack4impact.portal.db.tables.references.PARTNER
 import org.hack4impact.portal.db.tables.references.PERSON
+import org.hack4impact.portal.db.tables.references.PROJECT
+import org.hack4impact.portal.db.tables.references.PROJECT_MEMBER
+import org.hack4impact.portal.db.tables.references.PROJECT_ROLE
 import org.hack4impact.portal.db.tables.references.TERM
 import org.hack4impact.portal.db.tables.references.TOOL_ACCOUNT
 import org.jooq.DSLContext
@@ -115,6 +119,31 @@ class MemberDbImporterTests(
 		assertTrue(report.issues.any { "U0ADA" in it.message && "also linked" in it.message })
 		assertTrue(report.issues.any { "isn't a GitHub profile" in it.message })
 		assertTrue(report.issues.any { it.kind == "not imported" && "linkedin" in it.message })
+	}
+
+	@Test
+	fun `imports partners and project roles to pick from, but not projects or their teams`() {
+		val report = runImport()
+
+		assertEquals(setOf("RISE DC", "Food Bank"), dsl.select(PARTNER.NAME).from(PARTNER).fetchSet(PARTNER.NAME)) // Gone Partner was deleted
+		assertEquals(1, report.counts("partner").skipped)
+		val roles = dsl.selectFrom(PROJECT_ROLE).fetch().associate { it.name!! to it.isLead!! }
+		assertEquals(mapOf("Engineer" to false, "Tech Lead" to true), roles)
+		assertTrue(dsl.selectFrom(PROJECT_ROLE).fetch().all { it.sourceId != null })
+		assertEquals(0, dsl.fetchCount(PROJECT))
+		assertEquals(0, dsl.fetchCount(PROJECT_MEMBER))
+	}
+
+	@Test
+	fun `a partner renamed in the portal keeps its name`() {
+		runImport()
+		val rise = UUID.fromString("40000000-0000-0000-0000-000000000001")
+		dsl.update(PARTNER).set(PARTNER.NAME, "RISE D.C.").where(PARTNER.SOURCE_ID.eq(rise)).execute()
+
+		val second = runImport()
+
+		assertEquals("RISE D.C.", dsl.select(PARTNER.NAME).from(PARTNER).where(PARTNER.SOURCE_ID.eq(rise)).fetchSingle().value1())
+		assertEquals(1, second.counts("partner").kept)
 	}
 
 	@Test

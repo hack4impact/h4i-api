@@ -2,8 +2,8 @@ package org.hack4impact.portal.chapters
 
 import java.util.UUID
 
-// Response shapes of the chapter API. The web app's TypeScript types are
-// generated from the OpenAPI spec of these (web/openapi.json).
+// Response shapes of the chapter API. The frontend's types are generated
+// from the OpenAPI spec of these (openapi.json).
 
 data class Me(
 	val email: String,

@@ -15,14 +15,14 @@ import java.nio.file.Path
 import kotlin.test.assertEquals
 
 /**
- * The web app's TypeScript types are generated from web/openapi.json, so it must match the real API.
- * After changing an API: `./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec`, then `npm run gen:api` in web/.
+ * openapi.json is the API contract the frontend (a separate app) generates its types from, so it must match the real API.
+ * After changing an API: `./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec`, and tell the frontend.
  */
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest
 @AutoConfigureMockMvc
 class OpenApiSpecTests(@Autowired private val mvc: MockMvc) {
-	private val committed = Path.of("web/openapi.json")
+	private val committed = Path.of("openapi.json")
 
 	@Test
 	fun `web openapi json matches the live API`() {
@@ -35,7 +35,7 @@ class OpenApiSpecTests(@Autowired private val mvc: MockMvc) {
 		if (System.getProperty("updateApiSpec") == "true") Files.writeString(committed, pretty)
 		assertEquals(
 			mapper.writeValueAsString(sorted(mapper, mapper.readTree(Files.readString(committed)))) + "\n", pretty,
-			"web/openapi.json is out of date. Run: ./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec, then npm run gen:api in web/",
+			"openapi.json is out of date. Run: ./gradlew test --tests '*OpenApiSpecTests' -PupdateApiSpec",
 		)
 	}
 

@@ -8,7 +8,9 @@ import org.hack4impact.portal.db.tables.references.MEMBER_DB_DRIFT
 import org.hack4impact.portal.db.tables.references.MEMBER_DB_STATE
 import org.hack4impact.portal.db.tables.references.MEMBER_DB_WRITE
 import org.hack4impact.portal.db.tables.references.NATIONAL_ADMIN
+import org.hack4impact.portal.db.tables.references.PARTNER
 import org.hack4impact.portal.db.tables.references.PERSON
+import org.hack4impact.portal.db.tables.references.PROJECT_ROLE
 import org.hack4impact.portal.db.tables.references.TERM
 import org.hack4impact.portal.db.tables.references.TOOL_ACCOUNT
 import org.hack4impact.portal.emptyPortalTables
@@ -232,6 +234,19 @@ class MemberDbIntegrationTests(
 		memberDb.sql("UPDATE volunteers SET first_name = 'Nia' WHERE id = ?").param(nia).update()
 		assertEquals(0, pull.pull().drift)
 		assertEquals(0, dsl.fetchCount(MEMBER_DB_DRIFT)) // agree again: cleared
+	}
+
+	@Test
+	fun `a new partner or project role in the member database is pulled in`() {
+		assertEquals("unchanged", pull.pull().status) // seed() pulled
+
+		memberDb.sql("INSERT INTO partners (name, status) VALUES ('Pulled Partner', 'active')").update()
+		assertEquals("completed", pull.pull().status)
+		assertTrue(dsl.fetchExists(PARTNER, PARTNER.NAME.eq("Pulled Partner")))
+
+		memberDb.sql("INSERT INTO project_roles (name, is_lead) VALUES ('Pulled Role', false)").update()
+		assertEquals("completed", pull.pull().status)
+		assertTrue(dsl.fetchExists(PROJECT_ROLE, PROJECT_ROLE.NAME.eq("Pulled Role")))
 	}
 
 	@Test

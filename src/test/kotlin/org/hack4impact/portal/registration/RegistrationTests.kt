@@ -149,7 +149,7 @@ class RegistrationTests(
 		server.stubFor(get(urlEqualTo("/user")).willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""{"id":$id,"login":"$login"}""")))
 		val redirect = mvc.get("/api/apply/github/start") { cookie(cookie) }.andExpect { status { is3xxRedirection() } }.andReturn().response.redirectedUrl!!
 		val state = Regex("state=([^&]+)").find(redirect)!!.groupValues[1]
-		mvc.get("/api/apply/github/callback?code=abc&state=$state") { cookie(cookie) }.andExpect { redirectedUrl("/apply") }
+		mvc.get("/api/apply/github/callback?code=abc&state=$state") { cookie(cookie) }.andExpect { redirectedUrl("http://localhost:8080/apply") }
 	}
 
 	private fun person(first: String, status: String, school: String? = null, org: String? = null, imported: Boolean = false): UUID =
@@ -237,7 +237,7 @@ class RegistrationTests(
 		mvc.get("/api/chapters/umd/members") { cookie(cookie) }.andExpect { status { isUnauthorized() } }
 		mvc.get("/api/apply/me").andExpect { status { isUnauthorized() } }
 		mvc.post("/api/apply/me/submit") { cookie(cookie) }.andExpect { status { isForbidden() } } // no CSRF token
-		mvc.get("/api/apply/github/callback?code=abc&state=forged") { cookie(cookie) }.andExpect { redirectedUrl("/apply?github=failed") }
+		mvc.get("/api/apply/github/callback?code=abc&state=forged") { cookie(cookie) }.andExpect { redirectedUrl("http://localhost:8080/apply?github=failed") }
 	}
 
 	@Test

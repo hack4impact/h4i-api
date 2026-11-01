@@ -72,7 +72,7 @@ class MemberDbPull(
 		return result
 	}
 
-	/** Each table's row count and newest change (academic_terms has no updated_at: its newest row). */
+	/** Each table's row count and newest change (academic_terms and project_roles have no updated_at: their newest row). */
 	internal fun signature(): String = memberDb.jdbc.sql(
 		"""
 		SELECT string_agg(t || ':' || n || ':' || coalesce(m::text, ''), ',' ORDER BY t) FROM (
@@ -81,7 +81,9 @@ class MemberDbPull(
 		  SELECT 'volunteer_accounts', count(*), max(updated_at) FROM volunteer_accounts UNION ALL
 		  SELECT 'chapters', count(*), max(updated_at) FROM chapters UNION ALL
 		  SELECT 'academic_institutions', count(*), max(updated_at) FROM academic_institutions UNION ALL
-		  SELECT 'academic_terms', count(*), max(created_at) FROM academic_terms
+		  SELECT 'academic_terms', count(*), max(created_at) FROM academic_terms UNION ALL
+		  SELECT 'partners', count(*), max(updated_at) FROM partners UNION ALL
+		  SELECT 'project_roles', count(*), max(created_at) FROM project_roles
 		) x
 		""".trimIndent(),
 	).query(String::class.java).single()

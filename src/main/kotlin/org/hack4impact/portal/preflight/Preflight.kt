@@ -81,7 +81,10 @@ class Preflight(
 	private fun MutableList<Check>.portal() {
 		val area = "Portal"
 		val baseUrl = environment.getProperty("portal.base-url").orEmpty()
-		if (baseUrl.startsWith("https://")) ok(area, "Address", baseUrl) else warn(area, "Address", "$baseUrl: links in emails and the OAuth callbacks use it (PORTAL_BASE_URL)")
+		if (baseUrl.startsWith("https://")) ok(area, "Address", baseUrl) else warn(area, "Address", "$baseUrl: the OAuth callbacks use it (PORTAL_BASE_URL)")
+		val frontendUrl = environment.getProperty("portal.frontend-url").orEmpty()
+		if (frontendUrl.startsWith("https://") && frontendUrl != baseUrl) ok(area, "Frontend", frontendUrl)
+		else warn(area, "Frontend", "$frontendUrl: links in emails and the redirects after sign-in go there, and this app has no UI of its own (PORTAL_FRONTEND_URL)")
 		val signIn = environment.getProperty("spring.security.oauth2.client.registration.google.client-id")
 		if (signIn.isNullOrBlank() || signIn == "not-configured") fail(area, "Google sign-in", "PORTAL_GOOGLE_CLIENT_ID and _SECRET aren't set: leads can't sign in")
 		else ok(area, "Google sign-in", "client set")

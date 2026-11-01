@@ -20,12 +20,6 @@ jobs:
           distribution: temurin
           java-version: 25
           cache: gradle
-      # The web app (web/) is built and tested by Gradle with npm.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
       # Tests and jOOQ codegen start Postgres with Testcontainers; the runner has Docker.
       - run: ./gradlew build
       - name: Upload jar

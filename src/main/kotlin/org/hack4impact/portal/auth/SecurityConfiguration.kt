@@ -1,5 +1,6 @@
 package org.hack4impact.portal.auth
 
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -40,26 +41,28 @@ class SecurityConfiguration {
 		clients: ClientRegistrationRepository,
 		users: OAuth2UserService<OidcUserRequest, OidcUser>,
 		properties: AuthProperties,
+		@Value("\${portal.frontend-url}") frontendUrl: String,
 	): SecurityFilterChain {
 		val api = PathPatternRequestMatcher.withDefaults().matcher("/api/**")
+		val frontend = frontendUrl.trimEnd('/')
 		http
 			.authorizeHttpRequests {
 				it.requestMatchers("/api/status", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
 				// Documenso calling back: no sign-in, verified by its shared secret instead.
 				it.requestMatchers("/api/webhooks/**").permitAll()
 				it.requestMatchers("/api/**", "/v3/api-docs", "/v3/api-docs/**").authenticated()
-				it.anyRequest().permitAll() // the single-page app; it asks /api/me who's signed in
+				it.anyRequest().permitAll() // there's no UI here (the frontend is a separate app), so the rest is 404s and /error
 			}
 			.oauth2Login {
 				it.authorizationEndpoint { endpoint -> endpoint.authorizationRequestResolver(domainHint(clients, properties.allowedDomain)) }
 				it.userInfoEndpoint { info -> info.oidcUserService(users) }
-				it.defaultSuccessUrl("/", true)
-				it.failureUrl("/?signin=denied")
+				it.defaultSuccessUrl("$frontend/", true)
+				it.failureUrl("$frontend/?signin=denied")
 			}
-			.logout { it.logoutSuccessUrl("/") }
-			// The API answers 401 instead of redirecting to Google; the app starts the sign-in itself.
+			.logout { it.logoutSuccessUrl("$frontend/") }
+			// The API answers 401 instead of redirecting to Google; the frontend starts the sign-in itself.
 			.exceptionHandling { it.defaultAuthenticationEntryPointFor(HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED), api) }
-			// Cookie-based CSRF token the single-page app sends back as a header (Spring Security's SPA mode).
+			// Cookie-based CSRF token the frontend sends back as a header (Spring Security's SPA mode).
 			.csrf {
 				it.spa()
 				it.ignoringRequestMatchers("/api/webhooks/**")

@@ -27,7 +27,7 @@ data class ClaimLinksCreated(val links: List<UUID>)
  * usable link. If any email fails, the event stays unfinished and is retried on the next start, for those only.
  */
 @Component
-class InviteEmails(private val dsl: DSLContext, private val mailer: Mailer, @Value("\${portal.base-url}") private val baseUrl: String) {
+class InviteEmails(private val dsl: DSLContext, private val mailer: Mailer, @Value("\${portal.frontend-url}") private val frontendUrl: String) {
 	@ApplicationModuleListener(propagation = Propagation.NOT_SUPPORTED)
 	fun on(event: RosterInvited) {
 		val invites = dsl.select(ROSTER_INVITE.ID, ROSTER_INVITE.FIRST_NAME, ROSTER_INVITE.SCHOOL_EMAIL, CHAPTER.NAME, CHAPTER.CODE).from(ROSTER_INVITE)
@@ -38,7 +38,7 @@ class InviteEmails(private val dsl: DSLContext, private val mailer: Mailer, @Val
 		for ((id, first, school, chapter, code) in invites) {
 			val token = Tokens.new()
 			dsl.update(ROSTER_INVITE).set(ROSTER_INVITE.TOKEN_HASH, Tokens.hash(token)).where(ROSTER_INVITE.ID.eq(id)).execute()
-			if (mailer.send(Emails.rosterInvite(first!!, chapter!!, "${baseUrl.trimEnd('/')}/join/$code?invite=$token"), school!!)) {
+			if (mailer.send(Emails.rosterInvite(first!!, chapter!!, "${frontendUrl.trimEnd('/')}/join/$code?invite=$token"), school!!)) {
 				dsl.update(ROSTER_INVITE).set(ROSTER_INVITE.EMAILED_AT, OffsetDateTime.now()).where(ROSTER_INVITE.ID.eq(id)).execute()
 			} else {
 				failed++
@@ -57,7 +57,7 @@ class InviteEmails(private val dsl: DSLContext, private val mailer: Mailer, @Val
 		for ((id, person, addresses, first) in links) {
 			val token = Tokens.new()
 			dsl.update(CLAIM_LINK).set(CLAIM_LINK.TOKEN_HASH, Tokens.hash(token)).where(CLAIM_LINK.ID.eq(id)).execute()
-			val email = Emails.claim(first ?: "there", "${baseUrl.trimEnd('/')}/claim/$token", RegistrationService.LINK_LIFETIME.toDays().toInt())
+			val email = Emails.claim(first ?: "there", "${frontendUrl.trimEnd('/')}/claim/$token", RegistrationService.LINK_LIFETIME.toDays().toInt())
 			// Every address on file gets it (PRD); one that arrives is enough to count it as sent.
 			if (addresses!!.map { mailer.send(email, it!!, person = person) }.any { it }) {
 				dsl.update(CLAIM_LINK).set(CLAIM_LINK.EMAILED_AT, OffsetDateTime.now()).where(CLAIM_LINK.ID.eq(id)).execute()

@@ -39,7 +39,7 @@ class AgreementService(
 	private val documenso: ObjectProvider<DocumensoClient>,
 	private val adapters: AdapterProperties,
 	private val properties: AgreementProperties,
-	@Value("\${portal.base-url}") private val baseUrl: String,
+	@Value("\${portal.frontend-url}") private val frontendUrl: String,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -107,7 +107,7 @@ class AgreementService(
 		val email = r.schoolEmail ?: r.personalEmail ?: return fail(agreement, "no email address to send it to")
 		val name = listOfNotNull(r.preferredName?.takeIf { it.isNotBlank() } ?: r.firstName, r.lastName).joinToString(" ").ifBlank { email }
 		return try {
-			val envelope = client.send(template.documensoTemplateId!!, "agreement:${agreement.id}", email, name, template.name!!, false, "${baseUrl.trimEnd('/')}/apply?signed=${template.kind}")
+			val envelope = client.send(template.documensoTemplateId!!, "agreement:${agreement.id}", email, name, template.name!!, false, "${frontendUrl.trimEnd('/')}/apply?signed=${template.kind}")
 			dsl.update(AGREEMENT).set(AGREEMENT.DOCUMENSO_DOCUMENT_ID, envelope.id).set(AGREEMENT.STATUS, "sent").set(AGREEMENT.SENT_AT, OffsetDateTime.now())
 				.setNull(AGREEMENT.ERROR).where(AGREEMENT.ID.eq(agreement.id)).execute()
 			true
