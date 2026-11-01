@@ -15,13 +15,14 @@ import kotlin.test.assertTrue
 
 /**
  * Keeps adding a tool a matter of its adapters and one descriptor (wiki: tool plugins). Ported from the full portal,
- * trimmed to the files that exist here; the world loader's case comes with the sync (stage 2 package 4).
+ * trimmed to the files that exist here.
  */
 @Import(TestcontainersConfiguration::class)
 @SpringBootTest
 class ToolPluginGuardTests(
 	@Autowired private val dsl: DSLContext,
 	@Autowired private val bootstrap: ToolSettingsBootstrap,
+	@Autowired private val worlds: org.hack4impact.portal.sync.WorldLoader,
 ) {
 	companion object {
 		private val KEYS = Tool.entries.map { it.name.lowercase() }
@@ -44,6 +45,19 @@ class ToolPluginGuardTests(
 			"$path names ${named.joinToString()}".takeIf { named.size >= 3 }
 		}.toList()
 		assertTrue(listing.isEmpty(), "Read these from the tool registry instead (wiki: tool plugins):\n" + listing.joinToString("\n"))
+	}
+
+	@Test
+	fun `a resource of a tool no code knows is left out of the sync, not the end of it (tool plugins review)`() {
+		val r = org.hack4impact.portal.db.tables.references.RESOURCE
+		val id = dsl.insertInto(r).set(r.TOOL, "figma").set(r.NAME, "left-behind").returningResult(r.ID).fetchSingle().value1()!!
+		try {
+			val loaded = worlds.load()
+			assertTrue(loaded.world.resources.none { it.id == id })
+			assertTrue(loaded.warnings.any { "unknown tool 'figma'" in it }, loaded.warnings.toString())
+		} finally {
+			dsl.deleteFrom(r).where(r.ID.eq(id)).execute()
+		}
 	}
 
 	@Test

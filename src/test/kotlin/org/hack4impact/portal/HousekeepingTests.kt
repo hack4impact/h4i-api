@@ -38,12 +38,12 @@ class HousekeepingTests(@Autowired private val dsl: DSLContext, @Autowired priva
 		)
 
 		assertEquals(
-			mapOf("finishedEvents" to 1, "emailCodes" to 1, "applicantSessions" to 2),
+			mapOf("syncNotes" to 0, "finishedEvents" to 1, "emailCodes" to 1, "applicantSessions" to 2),
 			housekeeping.clean(),
 		)
 		assertEquals(2L, count("SELECT count(*) FROM portal.event_publication"))
 		assertEquals(1L, count("SELECT count(*) FROM portal.email_code"))
 		assertEquals(1L, count("SELECT count(*) FROM portal.applicant_session WHERE token_hash = 'live'"))
-		assertEquals(mapOf("finishedEvents" to 0, "emailCodes" to 0, "applicantSessions" to 0), housekeeping.clean()) // nothing twice
+		assertEquals(mapOf("syncNotes" to 0, "finishedEvents" to 0, "emailCodes" to 0, "applicantSessions" to 0), housekeeping.clean()) // nothing twice
 	}
 }

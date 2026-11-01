@@ -261,6 +261,23 @@
         },
         "type" : "object"
       },
+      "ChapterSync" : {
+        "properties" : {
+          "changes" : {
+            "items" : {
+              "$ref" : "#/components/schemas/PlannedChange"
+            },
+            "type" : "array"
+          },
+          "tools" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ToolSync"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
       "ClaimPreview" : {
         "properties" : {
           "alreadySent" : {
@@ -306,6 +323,52 @@
       "CodeRequest" : {
         "properties" : {
           "email" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "DeadLetter" : {
+        "properties" : {
+          "attempts" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "lastAttemptAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "lastError" : {
+            "type" : [ "string", "null" ]
+          },
+          "person" : {
+            "type" : "string"
+          },
+          "personId" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "resource" : {
+            "type" : "string"
+          },
+          "resourceId" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "tool" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "DeadLetterRef" : {
+        "properties" : {
+          "personId" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "resourceId" : {
+            "format" : "uuid",
             "type" : "string"
           }
         },
@@ -444,6 +507,106 @@
           },
           "valueNode" : {
             "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "LastRun" : {
+        "properties" : {
+          "applied" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "error" : {
+            "type" : [ "string", "null" ]
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "ranAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "removed" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "LinkDecision" : {
+        "properties" : {
+          "access" : {
+            "type" : [ "string", "null" ]
+          },
+          "action" : {
+            "type" : "string"
+          },
+          "confirmedAdds" : {
+            "format" : "int32",
+            "type" : [ "integer", "null" ]
+          },
+          "newName" : {
+            "type" : [ "string", "null" ]
+          },
+          "projectSlug" : {
+            "type" : [ "string", "null" ]
+          },
+          "target" : {
+            "type" : [ "string", "null" ]
+          }
+        },
+        "type" : "object"
+      },
+      "LinkPerson" : {
+        "properties" : {
+          "account" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          },
+          "personId" : {
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "verdict" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "LinkPreviewResult" : {
+        "properties" : {
+          "people" : {
+            "items" : {
+              "$ref" : "#/components/schemas/LinkPerson"
+            },
+            "type" : "array"
+          },
+          "resource" : {
+            "$ref" : "#/components/schemas/LinkedResource"
+          },
+          "willAdd" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "LinkedResource" : {
+        "properties" : {
+          "externalId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "tool" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -761,6 +924,71 @@
         },
         "type" : "object"
       },
+      "NationalResource" : {
+        "properties" : {
+          "access" : {
+            "type" : [ "string", "null" ]
+          },
+          "existsInTool" : {
+            "type" : "boolean"
+          },
+          "externalId" : {
+            "type" : [ "string", "null" ]
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "managed" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "projectSlug" : {
+            "type" : [ "string", "null" ]
+          },
+          "target" : {
+            "type" : [ "string", "null" ]
+          },
+          "tool" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PlannedChange" : {
+        "properties" : {
+          "accountId" : {
+            "type" : [ "string", "null" ]
+          },
+          "fromAccess" : {
+            "type" : [ "string", "null" ]
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "outcome" : {
+            "type" : [ "string", "null" ]
+          },
+          "person" : {
+            "type" : [ "string", "null" ]
+          },
+          "resource" : {
+            "type" : "string"
+          },
+          "toAccess" : {
+            "type" : [ "string", "null" ]
+          },
+          "tool" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "PullResult" : {
         "properties" : {
           "counts" : {
@@ -849,6 +1077,14 @@
           "id" : {
             "format" : "uuid",
             "type" : "string"
+          },
+          "resourceId" : {
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "runId" : {
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
           },
           "status" : {
             "type" : "string"
@@ -1035,6 +1271,20 @@
         },
         "type" : "object"
       },
+      "StartLink" : {
+        "properties" : {
+          "externalId" : {
+            "type" : [ "string", "null" ]
+          },
+          "name" : {
+            "type" : [ "string", "null" ]
+          },
+          "tool" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "StatusResponse" : {
         "properties" : {
           "service" : {
@@ -1053,6 +1303,10 @@
           },
           "reason" : {
             "type" : [ "string", "null" ]
+          },
+          "runId" : {
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
           }
         },
         "type" : "object"
@@ -1061,6 +1315,20 @@
         "properties" : {
           "token" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ToolChange" : {
+        "properties" : {
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
           }
         },
         "type" : "object"
@@ -1074,6 +1342,90 @@
             "type" : "string"
           },
           "order" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ToolStatus" : {
+        "properties" : {
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "lastRun" : {
+            "oneOf" : [ {
+              "$ref" : "#/components/schemas/LastRun"
+            }, {
+              "type" : "null"
+            } ]
+          },
+          "maxRemovals" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "pauseReason" : {
+            "type" : [ "string", "null" ]
+          },
+          "tool" : {
+            "type" : "string"
+          },
+          "writable" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ToolSync" : {
+        "properties" : {
+          "adds" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "changes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "creates" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "drift" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "error" : {
+            "type" : [ "string", "null" ]
+          },
+          "existing" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "missingResources" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "mode" : {
+            "type" : "string"
+          },
+          "ranAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "removals" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "tool" : {
+            "type" : "string"
+          },
+          "unmatchedAccounts" : {
             "format" : "int32",
             "type" : "integer"
           }
@@ -1711,6 +2063,51 @@
         "tags" : [ "registration-controller" ]
       }
     },
+    "/api/chapters/{code}/sync" : {
+      "get" : {
+        "operationId" : "sync",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "code",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ChapterSync"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "chapter-sync-controller" ]
+      }
+    },
+    "/api/chapters/{code}/sync/run" : {
+      "post" : {
+        "operationId" : "dryRun",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "code",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "202" : {
+            "description" : "Accepted"
+          }
+        },
+        "tags" : [ "chapter-sync-controller" ]
+      }
+    },
     "/api/me" : {
       "get" : {
         "operationId" : "me_1",
@@ -1818,6 +2215,69 @@
         "tags" : [ "agreement-template-controller" ]
       }
     },
+    "/api/national/chapters/{code}/resources" : {
+      "get" : {
+        "operationId" : "resources",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "code",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/NationalResource"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-resource-controller" ]
+      },
+      "post" : {
+        "operationId" : "start",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "code",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StartLink"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NationalResource"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-resource-controller" ]
+      }
+    },
     "/api/national/claims/people/{personId}" : {
       "post" : {
         "operationId" : "sendOne",
@@ -1847,7 +2307,7 @@
     },
     "/api/national/claims/preview" : {
       "get" : {
-        "operationId" : "preview_1",
+        "operationId" : "preview_2",
         "parameters" : [ {
           "in" : "query",
           "name" : "chapter",
@@ -1897,6 +2357,60 @@
           }
         },
         "tags" : [ "claim-controller" ]
+      }
+    },
+    "/api/national/dead-letters" : {
+      "get" : {
+        "operationId" : "deadLetters",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/DeadLetter"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-controller" ]
+      }
+    },
+    "/api/national/dead-letters/retry" : {
+      "post" : {
+        "operationId" : "retry_1",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "items" : {
+                  "$ref" : "#/components/schemas/DeadLetterRef"
+                },
+                "type" : "array"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/DeadLetter"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-controller" ]
       }
     },
     "/api/national/member-db" : {
@@ -1963,7 +2477,7 @@
     },
     "/api/national/member-db/writes/{personId}/preview" : {
       "get" : {
-        "operationId" : "preview",
+        "operationId" : "preview_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "personId",
@@ -2038,7 +2552,7 @@
     },
     "/api/national/queue/{id}" : {
       "post" : {
-        "operationId" : "decide",
+        "operationId" : "decide_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -2065,6 +2579,187 @@
                 "schema" : {
                   "items" : {
                     "$ref" : "#/components/schemas/QueueTask"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-controller" ]
+      }
+    },
+    "/api/national/resources/{id}" : {
+      "delete" : {
+        "operationId" : "remove",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "mode",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "national-resource-controller" ]
+      }
+    },
+    "/api/national/resources/{id}/link" : {
+      "get" : {
+        "operationId" : "preview",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "target",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "projectSlug",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "access",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LinkPreviewResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-resource-controller" ]
+      },
+      "post" : {
+        "operationId" : "decide",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LinkDecision"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/NationalResource"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-resource-controller" ]
+      }
+    },
+    "/api/national/sync/run" : {
+      "post" : {
+        "operationId" : "run",
+        "responses" : {
+          "202" : {
+            "description" : "Accepted"
+          }
+        },
+        "tags" : [ "national-controller" ]
+      }
+    },
+    "/api/national/tools" : {
+      "get" : {
+        "operationId" : "tools_1",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ToolStatus"
+                  },
+                  "type" : "array"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "national-controller" ]
+      }
+    },
+    "/api/national/tools/{tool}" : {
+      "put" : {
+        "operationId" : "setTool",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "tool",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ToolChange"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "items" : {
+                    "$ref" : "#/components/schemas/ToolStatus"
                   },
                   "type" : "array"
                 }

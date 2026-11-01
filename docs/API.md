@@ -411,20 +411,64 @@ Returns `RosterResult`:
 - Errors: `400` "The roster is empty"; `400` "The first line needs columns first_name, last_name, school_email (and optionally personal_email)"; `400` "At most 500 people per roster".
 - Side effects: each invited row is emailed a personal link (after the request commits, in the background); audited.
 
+#### `GET /api/chapters/{code}/sync` (lead)
+
+*Stage 2.* The latest sync run of each tool, counted for this chapter's resources, and up to 200 of its changes. Returns `ChapterSync`:
+
+```json
+{"tools": [{"tool": "slack", "status": "completed", "mode": "dry_run", "ranAt": "2026-11-01T14:00:00Z", "error": null,
+            "adds": 2, "changes": 0, "removals": 0, "drift": 1, "unmatchedAccounts": 1, "missingResources": 0, "creates": 1, "existing": 0}],
+ "changes": [{"kind": "add", "tool": "slack", "resource": "umd-rise-dc", "person": "Ada Lovelace", "accountId": null,
+              "fromAccess": null, "toAccess": "write", "mode": "dry_run", "outcome": null}]}
+```
+
+- `status`: `completed`, `paused` (a real run would stop at the removal limit, or the tool is switched off) or `failed`.
+- `kind`: `add`, `change`, `remove`, `drift` (access the portal didn't give; never removed), `unmatched_account`, `missing_resource`, `create_resource`, `archive_resource`, `resource_exists` (the tool already has the name; national decides).
+- `outcome` (apply runs only): `applied`, `invited`, `waiting`, `queued`, `held`, `failed`, `dead_letter`, `skipped`.
+
+#### `POST /api/chapters/{code}/sync/run` (lead)
+
+*Stage 2.* `202`. Plans every tool now without changing any, whatever national's switches say (decision 157); read the result with `GET …/sync`.
+
 ### 6.4 National
 
 All need a national admin; anyone else gets `403`.
 
 #### Admin queue
 
-Things the portal couldn't do itself, for a person to do by hand, e.g. creating a Google account when a chapter has no org unit yet, or checking a GitHub account linked to two people.
+Things the portal couldn't do itself, for a person to do by hand, e.g. creating a Google account when a chapter has no org unit yet, or checking a GitHub account linked to two people. Stage 2 adds the sync's tasks: `confirm_removals` (a run held at the removal limit; send its `runId` back with `done`), `create_resource` (creation kept failing; `done` tries again), `add_member`/`remove_member`, and `resource_exists` (a name the tool already has: decide with the [resource endpoints](#resources-linking-existing-ones), not here).
 
-- **`GET /api/national/queue`** → `QueueTask[]`: open tasks, plus those finished in the last 7 days (up to 500).
-- **`POST /api/national/queue/{id}`** with body `{"action": "done"}`, or `{"action": "cancel", "reason": "Duplicate"}`. Returns the updated list.
+- **`GET /api/national/queue`** → `QueueTask[]`: open tasks, plus those finished in the last 7 days (up to 500). `runId` and `resourceId` are set on sync tasks.
+- **`POST /api/national/queue/{id}`** with body `{"action": "done"}` (`{"action": "done", "runId": "…"}` for `confirm_removals`), or `{"action": "cancel", "reason": "Duplicate"}`. Returns the updated list.
   - `400` "action must be done or cancel"
   - `404` "No such task"
-  - `409` "This task is already done"
+  - `409` "This task is already done"; "Newer removals were held since this page loaded…" (a `confirm_removals` whose `runId` isn't the latest); "Decide about the resource instead…" (a `resource_exists`)
   - Audited.
+
+#### Sync controls
+
+*Stage 2.* The syncing tools are Slack, Google, GitHub and Vaultwarden. Every tool starts in dry run.
+
+- **`GET /api/national/tools`** → `ToolStatus[]` in list order: `{"tool", "enabled", "dryRun", "writable", "pauseReason", "maxRemovals", "lastRun": {"status", "mode", "ranAt", "applied", "removed", "error"} | null}`. `writable`: this deployment has the tool's write switch (`PORTAL_ADAPTERS_<TOOL>_WRITE`).
+- **`PUT /api/national/tools/{tool}`** with `{"enabled": true, "dryRun": false, "reason": null}` → the list. `404` for a tool that doesn't sync; `409` leaving dry run without the write switch; `400` "Say why the tool is paused" when `enabled` is false without a `reason`. Audited.
+- **`POST /api/national/sync/run`** → `202`: every tool, every chapter, as the switches say.
+- **`GET /api/national/dead-letters`** → `DeadLetter[]`: `{"personId", "person", "resourceId", "tool", "resource", "attempts", "lastError", "lastAttemptAt"}`, changes that failed five times.
+- **`POST /api/national/dead-letters/retry`** with `[{"personId", "resourceId"}]`, or `[]` for all → the list. The next run tries them again. Audited.
+
+#### Resources (linking existing ones)
+
+*Stage 2* (decision 170). When a project's channel, group or team already exists, or for a chapter's own channels, national ties the portal's resource to the existing one. A linked resource only gains people: everyone already in it stays.
+
+- **`GET /api/national/chapters/{code}/resources`** → `NationalResource[]`: `{"id", "tool", "name", "externalId", "managed", "target", "projectSlug", "access", "existsInTool"}`. `managed`: `portal`, `adopted` (linked) or `unmanaged`. `target`: `project_team`, `chapter_members`, `chapter_leads` or null. `existsInTool`: the tool has the name and national hasn't decided.
+- **`POST /api/national/chapters/{code}/resources`** with `{"tool": "slack", "name": "#umd"}` or `{"tool": "slack", "externalId": "C0123"}` → the new `NationalResource`, `unmanaged` until linked. `422` both or neither of `name` and `externalId`; `404` the tool doesn't list it (for Slack, the message says to invite the portal's app to a private channel); `409` already linked; `503` the portal isn't connected to the tool or can't read it.
+- **`GET /api/national/resources/{id}/link?target=project_team&projectSlug=rise-dc&access=write`** → `{"resource": {"tool", "name", "externalId"}, "people": [{"personId", "account", "name", "verdict"}], "willAdd": 1}`, read live from the tool. `verdict`: `will_add`, `already_there`, `kept` (in it, not in the target: stays) or `unknown_account`. `access` defaults to `write`; a gated tool's people who haven't signed aren't in `will_add`. `404` the tool no longer lists it; `422` a target that doesn't fit (unknown, or a project not in the resource's chapter).
+- **`POST /api/national/resources/{id}/link`** → the `NationalResource`, and the resource's `resource_exists` task closes.
+  - `{"action": "link", "target": "project_team", "projectSlug": "rise-dc", "access": "write", "confirmedAdds": 1}`: `confirmedAdds` is the preview's `willAdd`. A template resource keeps its audience, level and gate; one national started gets the team, and the agreement gate on GitHub and Vaultwarden. A run of that tool starts after the request. `409` the count changed (preview again) or the existing one is linked to another resource; `422` a missing field, or already linked.
+  - `{"action": "rename", "newName": "umd-rise-dc-2026"}`: the portal creates its own under the new name; the existing one is left alone. `422` a name the tool doesn't allow, or a resource the portal wasn't about to create.
+  - `{"action": "unmanaged"}`: the portal leaves it alone.
+- **`DELETE /api/national/resources/{id}?mode=detach|unmanaged`** → `204`. `detach`: no longer any project's or chapter's; the next run takes back what the portal added. `unmanaged`: the portal stops touching it and removes no one. `422` a resource that isn't linked or a chapter resource, or another mode.
+
+All audited.
 
 #### Claim links
 

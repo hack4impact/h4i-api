@@ -1,0 +1,9 @@
+# One dry-run sync of every enabled tool, printed, then exit:
+#   ./gradlew bootRun -PenvFile=sandbox.env --args='--spring.profiles.active=sync-dry-run'
+spring:
+  main:
+    web-application-type: none
+
+portal:
+  sync:
+    dry-run-once: true
