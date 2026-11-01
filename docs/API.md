@@ -19,6 +19,7 @@ Checked against the code and a running instance on 2026-10-31.
    - [Public](#61-public)
    - [Signed-in members](#62-signed-in-members-google)
    - [Chapters: members and approvals](#63-chapters-members-approvals-settings-roster)
+   - [Projects](#63a-projects-stage-2)
    - [National](#64-national)
    - [Applicants](#65-applicants-apiapply)
    - [Agreements and webhooks](#66-agreements-and-webhooks)
@@ -175,6 +176,7 @@ The API sends people to these addresses on `PORTAL_FRONTEND_URL`, in emails and 
 | `/apply` | Applicants with a session | After verifying, opening a link, GitHub and Documenso | The applicant's form: `GET /api/apply/me` |
 | `/apply?github=failed` | Applicants | GitHub sign-in failed or was cancelled | Show "GitHub sign-in didn't work, try again" |
 | `/apply?signed=<kind>` | Applicants | Back from signing in Documenso (`kind` = `volunteer` or `code_of_conduct`) | Reload `GET /api/apply/me`; the agreement may show `sent` for a few seconds until Documenso's webhook arrives |
+| `/projects/<chapter>/<slug>` | Members, leads | *Stage 2.* The "Your projects and access" email after a project change | The project: `GET /api/chapters/<chapter>/projects/<slug>` for its leads and the chapter's roles; for a member without either (`403`), their own page (`GET /api/me/home`) |
 
 ## 5. Flows, step by step
 
@@ -264,9 +266,11 @@ Any signed-in Google account. Who's signed in and which chapters they may open.
 
 #### `GET /api/me/home`
 
-Any signed-in member. Their own page: status, chapters, accounts and signed documents. Returns `MemberHome`.
+Any signed-in member. Their own page: status, chapters, accounts and signed documents; since stage 2 their projects and access. Returns `MemberHome`.
 
 - `agreements[].hasPdf`: the signed copy can be downloaded at `GET /api/agreements/{id}/pdf`.
+- `projects[]` (stage 2): `{"chapterCode", "chapter", "slug", "name", "status", "role", "leads", "agreementStatus", "canOpen"}`, projects that aren't closed. `canOpen`: they lead it or have a role in its chapter, so `GET …/projects/{slug}` works for them.
+- `access[]` (stage 2): `{"tool", "name", "url", "state", "access", "reasons"}`. `state`: `ready`, `invited` (accept the tool's invite), `setting_up`, `after_agreement` (sign the project agreement first). `reasons` in words: "On RISE DC", "Member of UMD", "Lead of UMD".
 - Errors: `401`; `404` "Your Google account isn't linked to a member yet".
 
 #### `GET /api/tools`
@@ -410,6 +414,26 @@ Returns `RosterResult`:
 - Rows are skipped, not failed: missing name or school email, a bad address, or an address with an open invite. An expired invite doesn't block a new one.
 - Errors: `400` "The roster is empty"; `400` "The first line needs columns first_name, last_name, school_email (and optionally personal_email)"; `400` "At most 500 people per roster".
 - Side effects: each invited row is emailed a personal link (after the request commits, in the background); audited.
+
+### 6.3a Projects (stage 2)
+
+Projects, their teams and resources. Reading a project needs a role in its chapter, or leading it (a lead project role); changing it needs lead, co-lead or national; a project's own leads change its team, and nothing else (decision 133). Every change answers with the updated `ProjectDetail`, asks for a sync in the same transaction (the tools follow once it commits), and emails everyone whose projects or access it changed one summary ("Your UMD projects and access", linking to `/projects/<chapter>/<slug>`). A closed project can't change (`409` "This project is closed").
+
+- **`GET /api/project-roles`** (signed in) → `[{"id", "name", "isLead"}]`, leads first. Role names are the member database's; the frontend chooses labels.
+- **`GET /api/partners`** (leads) → `[{"id", "name", "website"}]`. A missing one is added by national: **`POST /api/national/partners`** `{"name", "website"?}` → the partner; `409` a name that exists in any case; `422` a blank name.
+- **`GET /api/chapters/{code}/terms`** (lead) → `[{"id", "label"}]`, the school's semesters, newest first.
+- **`GET /api/chapters/{code}/past-projects`** (lead) → `[{"id", "name"}]`: the member database's projects with no engagement, read live, that no portal project links yet. `503` when the member database isn't connected or can't be reached.
+- **`GET /api/chapters/{code}/resources`** (lead) → `[{"id", "tool", "name", "state", "projects"}]`, to attach one to another project.
+- **`GET /api/chapters/{code}/projects`** (any role) → `ProjectSummary[]`: `{"id", "name", "slug", "status", "type", "tags", "term", "partner", "members", "resources", "updatedAt"}`, active first.
+- **`POST /api/chapters/{code}/projects`** (lead) with `{"name", "slug"?, "type"?, "tags"?, "termId"?, "partnerId"?, "pastProjectId"?, "startsOn"?, "endsOn"?}` → `201` `ProjectDetail`, a `draft` with the standard resources (Slack channel and Google group for the team; GitHub team and Vaultwarden collection after the project agreement). `409` the short name is taken; `422` an unknown or deleted `partnerId`, or a `pastProjectId` that has an engagement, isn't in the member database or is linked already; `400` other bad fields.
+- **`GET /api/chapters/{code}/projects/{slug}`** (a role in the chapter, or a project lead of it) → `ProjectDetail`: the fields above plus `partnerId`, `pastProjectId`, `startsOn`, `endsOn`, `members[]` (`{"personId", "name", "email", "status", "roleId", "role", "isLead", "agreementStatus"}`), `resources[]` (`{"resourceId", "tool", "name", "state", "managed", "audience", "roleId", "role", "access", "requiresAgreement", "tags", "sharedWith", "existsInTool", "getting", "awaitingAgreement", "url", "sync"}`), `agreementsSigned`, `preview` (a draft as if active), `planned` (the latest runs' changes for its resources, as in `ChapterSync`), `lastDryRunAt`, `plannedOutOfDate`, `activity`, `activityMore`, `canEdit`, `canEditTeam`.
+- **`PUT /api/chapters/{code}/projects/{slug}`** (lead), the create body without `slug`. `pastProjectId` changes only while a draft (`422` after); a started project keeps a partner (`422`).
+- **`POST /api/chapters/{code}/projects/{slug}/status`** (lead) `{"status": "active" | "paused" | "closed"}`. Starting needs a partner (`422` "Choose the project's partner before starting it") and sets `startsOn` to today if empty. `409` a move that isn't allowed (draft → active or closed; active ↔ paused; either → closed).
+- **`GET …/projects/{slug}/candidates`** (lead, project lead) → `[{"personId", "name", "status"}]`: the chapter's active members and alumni not on the team.
+- **`POST …/projects/{slug}/members`** (lead, project lead) `{"personId", "roleId"}`; **`PUT …/members/{personId}`** `{"roleId"}`; **`DELETE …/members/{personId}`**. `roleId` is required (`400` "Choose the person's project role"); `400` someone not in the chapter, or not active or alumni; `409` already on it; `404` not on it.
+- **`POST …/projects/{slug}/resources`** (lead) `{"resourceId"}` to share one of the chapter's, or `{"tool", "name"}` for a new one, plus `audience` (`team`, `role` with `roleId`, `leads`), `access` (`read`, `write`, `admin`), `requiresAgreement`, `tags`. **`PUT …/resources/{resourceId}`** changes who gets it; **`DELETE …/resources/{resourceId}`** detaches it (one never created and used by nothing else is dropped). `400` a tool the portal doesn't create resources in, or a name the tool doesn't allow; `409` already attached, or the chapter has that name already.
+- **`GET …/projects/{slug}/activity?before=&limit=20`** (as reading) → `{"items": [{"at", "kind", "text", "actor", "details"}], "more"}`, newest first. `kind`: `change` or `sync`.
+- **`GET /api/chapters/{code}/members/{personId}/access`** (lead) → the member's `access[]` (as on `/api/me/home`) for this chapter's resources. `404` not a member of the chapter.
 
 #### `GET /api/chapters/{code}/sync` (lead)
 

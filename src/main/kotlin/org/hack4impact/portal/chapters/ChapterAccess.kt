@@ -20,6 +20,10 @@ class ChapterAccess(private val viewers: Viewers, private val chapters: ChapterQ
 		return viewer to chapter
 	}
 
+	/** The viewer and the chapter, without a role check: for project leads, who may have no chapter role. 404 for an unknown chapter. */
+	fun lookup(user: OidcUser, code: String): Pair<Viewer, Chapter> =
+		viewers.of(user) to (chapters.byCode(code) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No chapter $code"))
+
 	fun manage(user: OidcUser, code: String): Pair<Viewer, Chapter> =
 		read(user, code).also { (viewer, chapter) -> if (!viewer.canManage(chapter.id)) throw AccessDeniedException("Leads only") }
 }
