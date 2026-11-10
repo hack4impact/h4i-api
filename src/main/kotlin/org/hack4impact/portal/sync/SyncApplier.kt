@@ -57,6 +57,8 @@ class SyncApplier(private val dsl: DSLContext, @Lazy private val engine: SyncEng
 
 	internal fun apply(
 		tool: Tool, trigger: String, writer: WriteAdapter, plan: Plan, actual: SyncEngine.Actual, desired: Resolution, wouldPause: String?,
+		/** Removals the limit doesn't hold: what a lead did on purpose (decision 178). */
+		deliberate: Set<Pair<UUID, UUID>> = emptySet(),
 	): ToolRunReport {
 		val now = OffsetDateTime.now()
 		val runId = dsl.insertInto(SYNC_RUN)
@@ -168,7 +170,7 @@ class SyncApplier(private val dsl: DSLContext, @Lazy private val engine: SyncEng
 			val ext = external[removal.resourceId]?.first
 			val account = actual.memberAccounts[removal.personId to removal.resourceId]
 			val (outcome, error) = when {
-				wouldPause != null -> "held" to wouldPause
+				wouldPause != null && (removal.personId to removal.resourceId) !in deliberate -> "held" to wouldPause
 				ext == null || account == null -> "skipped" to "no account to remove"
 				else -> attempt(removal.personId, removal.resourceId) { if (writer.revoke(ext, account) == GrantResult.QUEUED) "queued" else "applied" }
 			}
@@ -176,7 +178,7 @@ class SyncApplier(private val dsl: DSLContext, @Lazy private val engine: SyncEng
 			change("remove", removal.personId, removal.resourceId, outcome, error, account = account, from = removal.access, reasons = removal.previousReasons)
 			saveRemoval(removal.personId, removal.resourceId, outcome, error, runId, now, records[removal.personId to removal.resourceId])
 		}
-		val held = plan.removals.size + plan.lowerings.size
+		val held = plan.removals.count { (it.personId to it.resourceId) !in deliberate } + plan.lowerings.size
 		if (wouldPause != null && held > 0) {
 			queue.confirmRemovals(tool, runId, "Confirm $held removals in ${tool.name.lowercase().replaceFirstChar { it.uppercase() }}: $wouldPause")
 		}

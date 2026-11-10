@@ -163,6 +163,27 @@ class AdminQueue(private val dsl: DSLContext, private val syncs: org.hack4impact
 			.execute()
 	}
 
+	/**
+	 * Resources of [tool] that are no longer in it (deleted there): one open task each, and the tasks of resources that
+	 * are back (or archived, unmanaged or relinked since) cancel themselves.
+	 */
+	fun resourcesMissing(tool: Tool, missing: Set<UUID>) {
+		val key = tool.name.lowercase()
+		val open = dsl.select(ADMIN_TASK.ID, ADMIN_TASK.RESOURCE_ID).from(ADMIN_TASK)
+			.where(ADMIN_TASK.TOOL.eq(key), ADMIN_TASK.ACTION.eq("missing_resource"), ADMIN_TASK.STATUS.eq("open")).fetch()
+		open.filter { it.value2() !in missing }.forEach {
+			dsl.update(ADMIN_TASK).set(ADMIN_TASK.STATUS, "cancelled").set(ADMIN_TASK.CANCELLED_REASON, "no longer needed")
+				.set(ADMIN_TASK.UPDATED_AT, OffsetDateTime.now()).where(ADMIN_TASK.ID.eq(it.value1())).execute()
+		}
+		val label = key.replaceFirstChar { it.uppercase() }
+		for (resource in missing - open.mapNotNull { it.value2() }.toSet()) {
+			val name = dsl.select(RESOURCE.NAME).from(RESOURCE).where(RESOURCE.ID.eq(resource)).fetchOne()?.value1() ?: continue
+			dsl.insertInto(ADMIN_TASK).set(ADMIN_TASK.TOOL, key).set(ADMIN_TASK.ACTION, "missing_resource").set(ADMIN_TASK.RESOURCE_ID, resource)
+				.set(ADMIN_TASK.DESCRIPTION, "$name is no longer in $label (deleted there?). Nobody is added to it until it's back: restore it in $label, or detach it from its projects.")
+				.execute()
+		}
+	}
+
 	/** Closes a resource's open `resource_exists` task once national has decided about it (link, rename, unmanaged). */
 	fun resourceDecided(resource: UUID, viewer: Viewer) {
 		dsl.update(ADMIN_TASK).set(ADMIN_TASK.STATUS, "done").set(ADMIN_TASK.DONE_BY, viewer.personId).set(ADMIN_TASK.DONE_AT, OffsetDateTime.now())

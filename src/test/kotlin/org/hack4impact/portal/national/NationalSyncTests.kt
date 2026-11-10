@@ -109,7 +109,8 @@ class NationalSyncTests(
 	fun `held removals go ahead once national confirms them`() {
 		dsl.update(TOOL_SETTING).set(TOOL_SETTING.DRY_RUN, false).set(TOOL_SETTING.MAX_REMOVALS, 0).where(TOOL_SETTING.TOOL.eq("slack")).execute()
 		slackRun()
-		dsl.update(PROJECT_MEMBER).set(PROJECT_MEMBER.REMOVED_AT, OffsetDateTime.now()).execute()
+		// A removal nobody asked for (a lead's own isn't held, decision 178): Ada stopped being a member.
+		dsl.update(PERSON).set(PERSON.STATUS, "removed").where(PERSON.ID.eq(ada)).execute()
 
 		val seen = slackRun()
 		assertEquals("paused", seen.status)

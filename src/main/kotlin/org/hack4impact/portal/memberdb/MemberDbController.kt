@@ -161,7 +161,7 @@ class MemberDbController(
 	fun previewProject(@AuthenticationPrincipal user: OidcUser, @PathVariable id: UUID): MemberDbWritePreview {
 		national(user)
 		if (!dsl.fetchExists(PROJECT, PROJECT.ID.eq(id))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "No such project")
-		return preview { projectWriter.planProject(id).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip) + it.notes, emptyList()) } }
+		return preview { projectWriter.planProject(id, preview = true).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip) + it.notes, emptyList()) } }
 	}
 
 	@PostMapping("/projects/{id}/retry")
@@ -178,7 +178,7 @@ class MemberDbController(
 	fun previewLeadership(@AuthenticationPrincipal user: OidcUser, @PathVariable chapterRoleId: UUID): MemberDbWritePreview {
 		national(user)
 		if (!dsl.fetchExists(CHAPTER_ROLE, CHAPTER_ROLE.ID.eq(chapterRoleId))) throw ResponseStatusException(HttpStatus.NOT_FOUND, "No such chapter role")
-		return preview { projectWriter.planLeadership(chapterRoleId).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip), emptyList()) } }
+		return preview { projectWriter.planLeadership(chapterRoleId, preview = true).let { MemberDbWritePreview(it.fields, listOfNotNull(it.skip), emptyList()) } }
 	}
 
 	@PostMapping("/leadership/{chapterRoleId}/retry")

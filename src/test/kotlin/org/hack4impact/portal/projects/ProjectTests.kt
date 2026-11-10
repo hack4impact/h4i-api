@@ -295,6 +295,10 @@ class ProjectTests(
 		send("POST", path, """{"tool":"documenso","name":"x"}""").andExpect { status { isBadRequest() } }
 		send("POST", path, """{"tool":"figma","name":"x"}""").andExpect { status { isBadRequest() } } // not a registered tool
 		send("POST", path, """{"tool":"Slack","name":"umd-rise-dc-random"}""").andExpect { status { isOk() } }
+		// A lead names only the chapter's own: any other unused name (a group at any H4I address) is national's to add.
+		send("POST", path, """{"tool":"google","name":"finance@hack4impact.org"}""").andExpect { status { isBadRequest() } }
+		send("POST", path, """{"tool":"slack","name":"announcements"}""").andExpect { status { isBadRequest() } }
+		send("POST", path, """{"tool":"google","name":"finance@hack4impact.org"}""", as_ = "nora@hack4impact.org").andExpect { status { isOk() } }
 		assertEquals("slack", dsl.select(RESOURCE.TOOL).from(RESOURCE).where(RESOURCE.NAME.eq("umd-rise-dc-random")).fetchSingle().value1())
 		send("POST", path, """{"tool":"github","name":"umd-rise-dc-design","audience":"role"}""").andExpect { status { isBadRequest() } } // role missing
 

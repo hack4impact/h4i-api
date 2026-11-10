@@ -42,7 +42,7 @@ class ExistingResources(private val dsl: DSLContext, private val queue: AdminQue
 		 * private channel the portal's app can't see).
 		 */
 		fun alreadyExists(e: AdapterException): Boolean =
-			e is Rejected && (e.status == 409 || e.status == 422 || "name_taken" in e.message.orEmpty() || "already exists" in e.message.orEmpty())
+			e is Rejected && (e.status == 409 || (e.status == 422 && e.tool == Tool.GITHUB) || "name_taken" in e.message.orEmpty() || "already exists" in e.message.orEmpty())
 	}
 
 	/**

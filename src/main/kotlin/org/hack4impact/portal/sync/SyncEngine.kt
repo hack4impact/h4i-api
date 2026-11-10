@@ -1,5 +1,6 @@
 package org.hack4impact.portal.sync
 
+import org.hack4impact.portal.adapters.AccountState
 import org.hack4impact.portal.adapters.AdapterException
 import org.hack4impact.portal.adapters.NotFound
 import org.hack4impact.portal.adapters.ReadAdapter
@@ -10,6 +11,7 @@ import org.hack4impact.portal.db.tables.references.AUDIT_EVENT
 import org.hack4impact.portal.db.tables.references.CHAPTER_RESOURCE
 import org.hack4impact.portal.db.tables.references.PERSON
 import org.hack4impact.portal.db.tables.references.PROJECT
+import org.hack4impact.portal.db.tables.references.PROJECT_MEMBER
 import org.hack4impact.portal.db.tables.references.PROJECT_RESOURCE
 import org.hack4impact.portal.db.tables.references.RESOURCE
 import org.hack4impact.portal.db.tables.references.SYNC_CHANGE
@@ -148,10 +150,14 @@ class SyncEngine(
 		}
 
 		val ofTool = { id: UUID -> resourceTool[id] == tool }
+		// A resource the tool no longer has (deleted there): nobody can be added to it, so its grants are left out rather
+		// than failing one by one into dead letters, and national gets one task for it (2026-11-09 review M3).
+		val missing = actual.missing.toSet()
+		queue.resourcesMissing(tool, missing)
 		// Grants already met by someone's role in the tool (implicit access) are left out of the plan, and so are grants
 		// to resources the portal doesn't touch (unmanaged, or waiting for national's decision about an existing name).
 		val desired = Resolution(
-			resolution.grants.filter { ofTool(it.resourceId) && (it.personId to it.resourceId) !in actual.implicit && it.resourceId !in actual.untouched },
+			resolution.grants.filter { ofTool(it.resourceId) && (it.personId to it.resourceId) !in actual.implicit && it.resourceId !in actual.untouched && it.resourceId !in missing },
 			resolution.withheld.filter { ofTool(it.resourceId) },
 		)
 		val records = dsl.select(SYNC_RECORD.PERSON_ID, SYNC_RECORD.RESOURCE_ID, SYNC_RECORD.REASONS, SYNC_RECORD.APPLIED_ACCESS_LEVEL).from(SYNC_RECORD)
@@ -162,14 +168,16 @@ class SyncEngine(
 		// The level the portal last applied: access is only lowered from a level the portal gave (decision 144).
 		val applied = records.mapNotNull { r -> r.value4()?.let { level -> (r.value1()!! to r.value2()!!) to Access.valueOf(level.uppercase()) } }.toMap()
 		val plan = Planner.plan(desired, actual.memberships, previous, applied)
-		val wouldPause = blastRadius(plan, actual.memberships, setting?.maxRemovals ?: 25, setting?.maxRemovalRatio?.toDouble() ?: 0.2)
+		// Removals a lead asked for (decision 178) aren't counted against the limit or held by it.
+		val deliberate = deliberate(plan)
+		val wouldPause = blastRadius(plan, actual.memberships, setting?.maxRemovals ?: 25, setting?.maxRemovalRatio?.toDouble() ?: 0.2, deliberate)
 
 		val writer = writers.firstOrNull { it.tool == tool }
 		if (!forceDryRun && setting?.dryRun == false && writer != null) {
 			// National confirmed these very removals recently (admin queue): the run may make them.
-			val taken = plan.removals.map { it.personId to it.resourceId } + plan.lowerings.map { it.grant.personId to it.grant.resourceId }
+			val taken = plan.removals.map { it.personId to it.resourceId }.filter { it !in deliberate } + plan.lowerings.map { it.grant.personId to it.grant.resourceId }
 			val hold = wouldPause?.takeUnless { queue.removalsConfirmed(tool, taken) }
-			return applier.apply(tool, trigger, writer, plan, actual, desired, hold)
+			return applier.apply(tool, trigger, writer, plan, actual, desired, hold, deliberate)
 		}
 		val runId = transactions.execute { record(tool, trigger, plan, actual, desired, wouldPause) }
 		return ToolRunReport(
@@ -190,7 +198,9 @@ class SyncEngine(
 		// their H4I address; otherwise the first the tool lists, so the choice doesn't change from run to run.
 		val orgEmails = dsl.select(PERSON.ID, PERSON.ORG_EMAIL).from(PERSON).where(PERSON.ID.`in`(matched.filterValues { it.size > 1 }.keys))
 			.fetch().associate { it.value1()!! to it.value2() }
-		val people = matched.mapValues { (person, options) -> options.firstOrNull { o -> orgEmails[person]?.let { o.email.equals(it, ignoreCase = true) } == true } ?: options.first() }
+		// A deactivated account can't be given anything: someone with only that waits on themselves, like someone with none.
+		val people = matched.mapValues { (_, options) -> options.filter { it.state != AccountState.SUSPENDED } }.filterValues { it.isNotEmpty() }
+			.mapValues { (person, options) -> options.firstOrNull { o -> orgEmails[person]?.let { o.email.equals(it, ignoreCase = true) } == true } ?: options.first() }
 		val tool = adapter.tool.name.lowercase()
 		val managed = dsl.select(RESOURCE.ID, RESOURCE.EXTERNAL_ID).from(RESOURCE)
 			.where(RESOURCE.TOOL.eq(tool), RESOURCE.EXTERNAL_ID.isNotNull, RESOURCE.ARCHIVED_AT.isNull, RESOURCE.MANAGED.ne("unmanaged"))
@@ -250,10 +260,29 @@ class SyncEngine(
 		return Actual(memberships, unmatched, missing, toCreate, memberAccounts, people, toArchive, implicit, existingNow.map { it.first }, untouched)
 	}
 
+	/**
+	 * Removals that follow from what a lead did on purpose (decision 178, 2026-11-09): the portal gave the access only
+	 * for projects, and each of those projects is now closed or the person was taken off its team. They're audited where
+	 * they were made, so the removal limit neither counts nor holds them: closing a project would otherwise always be held
+	 * (it removes its whole team). Everything else still counts: someone who stopped being active, a detached resource,
+	 * a changed audience or gate, a resolver or data fault.
+	 */
+	private fun deliberate(plan: Plan): Set<Pair<UUID, UUID>> {
+		val candidates = plan.removals.filter { r -> r.previousReasons.isNotEmpty() && r.previousReasons.all { it is Reason.ProjectMember } }
+		if (candidates.isEmpty()) return emptySet()
+		val projects = candidates.flatMap { r -> r.previousReasons.map { (it as Reason.ProjectMember).projectId } }.toSet()
+		val closed = dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.ID.`in`(projects), PROJECT.STATUS.eq("closed")).fetch(PROJECT.ID).toSet()
+		val onTeam = dsl.select(PROJECT_MEMBER.PROJECT_ID, PROJECT_MEMBER.PERSON_ID).from(PROJECT_MEMBER)
+			.where(PROJECT_MEMBER.PROJECT_ID.`in`(projects), PROJECT_MEMBER.REMOVED_AT.isNull).fetch { it.value1() to it.value2() }.toSet()
+		return candidates
+			.filter { r -> r.previousReasons.all { val p = (it as Reason.ProjectMember).projectId; p in closed || (p to r.personId) !in onTeam } }
+			.map { it.personId to it.resourceId }.toSet()
+	}
+
 	/** Why a writing run would pause for national: too many removals overall, or too large a share of one resource. */
-	private fun blastRadius(plan: Plan, actual: List<Membership>, maxRemovals: Int, maxRatio: Double): String? {
+	private fun blastRadius(plan: Plan, actual: List<Membership>, maxRemovals: Int, maxRatio: Double, deliberate: Set<Pair<UUID, UUID>>): String? {
 		// Lowering someone's access counts like taking it away (decision 144).
-		val taken = plan.removals.map { it.resourceId } + plan.lowerings.map { it.grant.resourceId }
+		val taken = plan.removals.filter { (it.personId to it.resourceId) !in deliberate }.map { it.resourceId } + plan.lowerings.map { it.grant.resourceId }
 		if (taken.size > maxRemovals) return "${taken.size} removals is over the limit of $maxRemovals"
 		val membersPerResource = actual.groupingBy { it.resourceId }.eachCount()
 		return taken.groupingBy { it }.eachCount().entries.firstNotNullOfOrNull { (resource, removed) ->

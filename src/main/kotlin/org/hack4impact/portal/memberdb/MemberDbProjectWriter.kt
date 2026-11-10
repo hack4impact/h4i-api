@@ -75,7 +75,7 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 	// ---- Projects ---------------------------------------------------------------------------------------------------
 
 	/** What would be written for [projectId] now (also the preview). Reads the member database. */
-	fun planProject(projectId: UUID): ProjectWritePlan {
+	fun planProject(projectId: UUID, preview: Boolean = false): ProjectWritePlan {
 		val p = dsl.selectFrom(PROJECT).where(PROJECT.ID.eq(projectId)).fetchOne() ?: throw MemberDbConflict("No such project")
 		if (p.status == "draft") return ProjectWritePlan(projectId, skip = "A draft project isn't written until it starts")
 		val chapter = dsl.selectFrom(CHAPTER).where(CHAPTER.ID.eq(p.chapterId)).fetchSingle()
@@ -86,7 +86,9 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 		if (partnerExists == true) throw MemberDbConflict("The member database deleted the partner ${partner.name}: pick another")
 		val (projectStatus, engagementStatus) = statuses(p.status!!)
 		val start = (p.startsOn ?: p.createdAt!!.toLocalDate()).atStartOfDay().atOffset(ZoneOffset.UTC)
-		val end = if (p.status == "closed") (p.endsOn?.atStartOfDay()?.atOffset(ZoneOffset.UTC) ?: p.closedAt) else p.endsOn?.atStartOfDay()?.atOffset(ZoneOffset.UTC)
+		// Closed: the planned end date, or the day it closed if that came first (closed early isn't "ended next month").
+		val planned = p.endsOn?.atStartOfDay()?.atOffset(ZoneOffset.UTC)
+		val end = if (p.status == "closed") listOfNotNull(planned, p.closedAt).minOrNull() else planned
 		val notes = mutableListOf<String>()
 
 		// The projects row: a past one the lead linked (only the engagement is written), else the portal's own, whose ID is
@@ -103,8 +105,13 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 			PROJECT_ROLE.NAME, PROJECT_ROLE.SOURCE_ID)
 			.from(PROJECT_MEMBER).join(PROJECT_ROLE).on(PROJECT_ROLE.ID.eq(PROJECT_MEMBER.PROJECT_ROLE_ID))
 			.where(PROJECT_MEMBER.PROJECT_ID.eq(projectId)).orderBy(PROJECT_MEMBER.ADDED_AT).fetch()
-		val volunteers = volunteersOf(members.map { it.value2()!! }.toSet())
-		val assignments = members.map { m ->
+		// Someone no longer on the team whose own record isn't (or is no longer) in the member database is left out with a
+		// note: one long-gone member mustn't block the whole project's write (2026-11-09 review M5).
+		val current = members.filter { it.value5() == null }.map { it.value2()!! }.toSet()
+		val former = members.map { it.value2()!! }.toSet() - current
+		val volunteers = volunteersOf(current + former, former, preview)
+		val leftOut = (former - volunteers.keys).size
+		val assignments = members.filter { it.value2() in volunteers }.map { m ->
 			val role = m.value7() ?: throw MemberDbConflict("The project role ${m.value6()} isn't in the member database")
 			// No earlier than the engagement: someone added while it was a draft starts with it (package 7 review R4).
 			Assignment(m.value1()!!, m.value3() ?: m.value1()!!, volunteers.getValue(m.value2()!!), role, maxOf(m.value4()!!, start), m.value5())
@@ -122,6 +129,7 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 			if (partnerExists == null) put("partners.name", partner.name)
 			put("project_assignments", assignments.joinToString { "${it.volunteer}:${it.role}${if (it.end != null) " (ended)" else ""}" })
 		}
+		if (leftOut > 0) notes += "$leftOut former team members have no record in the member database (never written, failed or deleted there): their assignments aren't written"
 		if (linked) notes += "Linked to a past project: only the engagement and its team are written"
 		if (partnerExists == null) notes += "The partner ${partner.name} is new to the member database: written with this project"
 
@@ -187,9 +195,9 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 	/**
 	 * Each person's volunteer ID. People go first: someone whose person write is pending is waited for (their person
 	 * write is asked for if it never was); a failed person write, or a volunteer the member database deleted, goes to
-	 * national.
+	 * national. [optional] people (former team members) are left out of the answer instead of waited for or refused.
 	 */
-	private fun volunteersOf(persons: Set<UUID>): Map<UUID, UUID> {
+	private fun volunteersOf(persons: Set<UUID>, optional: Set<UUID> = emptySet(), preview: Boolean = false): Map<UUID, UUID> {
 		if (persons.isEmpty()) return emptyMap()
 		val rows = dsl.select(PERSON.ID, PERSON.SOURCE_ID, PERSON.FIRST_NAME, PERSON.LAST_NAME, MEMBER_DB_WRITE.STATE)
 			.from(PERSON).leftJoin(MEMBER_DB_WRITE).on(MEMBER_DB_WRITE.PERSON_ID.eq(PERSON.ID)).where(PERSON.ID.`in`(persons)).fetch()
@@ -198,10 +206,11 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 		for (r in rows) {
 			val name = "${r.value3()} ${r.value4()}"
 			when {
+				r.value1() in optional && (r.value5() == "failed" || r.value2() == null) -> Unit // left out ([optional])
 				r.value5() == "failed" -> throw MemberDbConflict("$name's own record couldn't be written to the member database: retry theirs first")
 				r.value2() == null -> {
 					waiting += r.value1()!!
-					if (r.value5() == null) writes.request(r.value1()!!)
+					if (r.value5() == null && !preview) writes.request(r.value1()!!) // a preview only reads (review L5)
 				}
 				else -> ids[r.value1()!!] = r.value2()!!
 			}
@@ -210,6 +219,7 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 		val deleted = ids.values.filter { v ->
 			memberDb.jdbc.sql("SELECT count(*) FROM volunteers WHERE id = ? AND deleted_at IS NOT NULL").param(v).query(Long::class.java).single() > 0
 		}.toSet()
+		ids.entries.removeIf { it.key in optional && it.value in deleted }
 		ids.entries.firstOrNull { it.value in deleted }?.let { (person, _) ->
 			val p = rows.first { it.value1() == person }
 			throw MemberDbConflict("The member database deleted ${p.value3()} ${p.value4()}'s record: national decides whether it comes back")
@@ -220,14 +230,14 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 	// ---- Chapter leads ----------------------------------------------------------------------------------------------
 
 	/** What would be written for a chapter role now (also the preview). Viewers aren't written. */
-	fun planLeadership(chapterRoleId: UUID): LeadershipWritePlan {
+	fun planLeadership(chapterRoleId: UUID, preview: Boolean = false): LeadershipWritePlan {
 		val role = dsl.selectFrom(CHAPTER_ROLE).where(CHAPTER_ROLE.ID.eq(chapterRoleId)).fetchOne() ?: throw MemberDbConflict("No such chapter role")
 		val leadershipRole = LEADERSHIP_ROLES[role.role] ?: return LeadershipWritePlan(chapterRoleId, skip = "Viewers aren't written to the member database")
 		val chapter = dsl.selectFrom(CHAPTER).where(CHAPTER.ID.eq(role.chapterId)).fetchSingle()
 		val chapterId = chapter.sourceId ?: throw MemberDbConflict("${chapter.name} isn't a chapter from the member database")
 		val roleId = memberDb.jdbc.sql("SELECT id FROM leadership_roles WHERE name = ? ORDER BY created_at LIMIT 1").param(leadershipRole)
 			.query(UUID::class.java).optional().orElse(null) ?: throw MemberDbConflict("The member database has no \"$leadershipRole\" leadership role: Khoa's script seeds it")
-		val volunteer = volunteersOf(setOf(role.personId!!)).getValue(role.personId!!)
+		val volunteer = volunteersOf(setOf(role.personId!!), preview = preview).getValue(role.personId!!)
 		val fields = mapOf(
 			"leadership_assignments.id" to chapterRoleId.toString(),
 			"leadership_assignments.volunteer_id" to volunteer.toString(),
@@ -309,6 +319,13 @@ class MemberDbProjectWriter(private val dsl: DSLContext, private val memberDb: M
 			onWaiting(e.people)
 			false
 		} catch (e: Exception) {
+			if (MemberDbWriter.unreachable(e)) {
+				// The member database is down, not this write wrong: tried again without counting, so an outage doesn't
+				// leave every write failed for national to retry by hand (2026-11-09 review M5).
+				log.warn("Member database unreachable writing {}: {}", id, e.message)
+				onFailed(attempts, "The member database couldn't be reached: ${(e.message ?: e.javaClass.simpleName).take(400)}", false)
+				return false
+			}
 			val n = attempts + 1
 			log.warn("Member database write for {} failed (attempt {}): {}", id, n, e.message)
 			onFailed(n, (e.message ?: e.javaClass.simpleName).take(500), e is MemberDbConflict || n >= MAX_ATTEMPTS)

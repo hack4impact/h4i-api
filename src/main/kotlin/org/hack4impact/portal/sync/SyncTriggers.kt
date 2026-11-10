@@ -59,6 +59,12 @@ class SyncListener(private val engine: SyncEngine, @org.springframework.beans.fa
 	private val tools = mutableSetOf<Tool>()
 	private var trigger: String? = null
 
+	@Volatile
+	private var failed = false
+
+	/** Whether a run failed outright since this was last asked (and forgets it). */
+	fun takeFailed(): Boolean = failed.also { failed = false }
+
 	/**
 	 * Outside any transaction (second review H2): each run, change and created resource commits as it happens, so a
 	 * failure later on can't roll back the record of changes already made in the tools, and no row stays locked for
@@ -89,6 +95,7 @@ class SyncListener(private val engine: SyncEngine, @org.springframework.beans.fa
 				engine.run(which, these).forEach { log.info("Sync {} ({}): {}", it.tool, which, it) }
 			} catch (e: RuntimeException) {
 				log.error("Sync ({}) failed", which, e)
+				failed = true // its request is spent: the retry pass asks again (2026-11-09 review H2)
 			}
 		}
 	}
@@ -102,10 +109,88 @@ class SyncListener(private val engine: SyncEngine, @org.springframework.beans.fa
 class DryRunListener(private val engine: SyncEngine, @org.springframework.beans.factory.annotation.Value("\${portal.sync.on-request:true}") private val enabled: Boolean) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
+	// Requests that arrive while a dry run is going are merged into one more (2026-11-09 review M4): each reads every
+	// tool and holds the sync lock, so a lead clicking repeatedly mustn't queue a run per click.
+	private var running = false
+	private var again = false
+
 	@ApplicationModuleListener(propagation = Propagation.NOT_SUPPORTED)
 	fun on(event: DryRunRequested) {
 		if (!enabled) return
-		engine.dryRun(event.trigger).forEach { log.info("Dry run {} ({}): {}", it.tool, event.trigger, it) }
+		synchronized(this) {
+			if (running) {
+				again = true
+				return
+			}
+			running = true
+		}
+		while (true) {
+			try {
+				engine.dryRun(event.trigger).forEach { log.info("Dry run {} ({}): {}", it.tool, event.trigger, it) }
+			} catch (e: RuntimeException) {
+				log.error("Dry run failed", e)
+			}
+			synchronized(this) {
+				if (!again) {
+					running = false
+					return
+				}
+				again = false
+			}
+		}
+	}
+}
+
+/**
+ * Asks for a sync of tools with unfinished work (2026-11-09 review H2): without it a run happens only when a change
+ * asks for one, so a failed change's backoff, a created resource's retry, an accepted invitation waiting to be confirmed
+ * and a run that failed outright would all wait for an unrelated change. Only tools that are on and out of dry run:
+ *  - a failed change or a resource creation whose retry is due: at the next pass;
+ *  - someone waited for (an invitation not accepted yet, no account in the tool yet): when the tool's last run is older
+ *    than [waitingEvery], since only reading the tool again shows whether they've acted.
+ * `portal.sync.retry-every` (default 15 minutes) sets the pass; the one-shot commands don't schedule it.
+ */
+@Component
+class SyncRetries(
+	private val dsl: org.jooq.DSLContext,
+	private val requests: SyncRequests,
+	private val listener: SyncListener,
+	@org.springframework.beans.factory.annotation.Value("\${portal.sync.waiting-every:PT1H}") private val waitingEvery: java.time.Duration,
+) {
+	private val log = LoggerFactory.getLogger(javaClass)
+
+	@Scheduled(fixedDelayString = "\${portal.sync.retry-every:PT15M}", initialDelayString = "PT5M")
+	fun pass() {
+		if (listener.takeFailed()) {
+			log.info("Retry pass: the last sync failed outright; syncing every tool")
+			requests.request("schedule")
+			return
+		}
+		val tools = due(java.time.OffsetDateTime.now())
+		if (tools.isNotEmpty()) {
+			log.info("Retry pass: syncing {} for unfinished changes", tools)
+			requests.request("schedule", tools)
+		}
+	}
+
+	/** The tools with work a run could finish now. */
+	fun due(now: java.time.OffsetDateTime): Set<Tool> {
+		val record = org.hack4impact.portal.db.tables.references.SYNC_RECORD
+		val resource = org.hack4impact.portal.db.tables.references.RESOURCE
+		val setting = org.hack4impact.portal.db.tables.references.TOOL_SETTING
+		val run = org.hack4impact.portal.db.tables.references.SYNC_RUN
+		val live = dsl.select(setting.TOOL).from(setting).where(setting.ENABLED.isTrue, setting.DRY_RUN.isFalse).fetch().mapNotNull { it.value1() }.toSet()
+		if (live.isEmpty()) return emptySet()
+		val failed = dsl.selectDistinct(resource.TOOL).from(record).join(resource).on(resource.ID.eq(record.RESOURCE_ID))
+			.where(record.STATUS.eq("failed"), record.NEXT_RETRY_AT.le(now), resource.ARCHIVED_AT.isNull).fetch().mapNotNull { it.value1() }
+		val creating = dsl.selectDistinct(resource.TOOL).from(resource)
+			.where(resource.EXTERNAL_ID.isNull, resource.ARCHIVED_AT.isNull, resource.CREATE_RETRY_AT.le(now)).fetch().mapNotNull { it.value1() }
+		val lastRun = dsl.select(run.TOOL, org.jooq.impl.DSL.max(run.STARTED_AT)).from(run).where(run.MODE.eq("apply")).groupBy(run.TOOL).fetch()
+			.associate { it.value1() to it.value2() }
+		val waiting = dsl.selectDistinct(resource.TOOL).from(record).join(resource).on(resource.ID.eq(record.RESOURCE_ID))
+			.where(record.STATUS.eq("waiting_on_member"), resource.ARCHIVED_AT.isNull).fetch().mapNotNull { it.value1() }
+			.filter { tool -> lastRun[tool]?.isAfter(now.minus(waitingEvery)) != true }
+		return (failed + creating + waiting).filter { it in live }.mapNotNull { Tool.fromKey(it) }.toSet()
 	}
 }
 
@@ -144,10 +229,10 @@ class SyncRecovery(
 	}
 }
 
-/** The nightly sync (PRD: drift detection). Off unless PORTAL_SYNC_CRON is set, e.g. "0 0 3 * * *". */
+/** The nightly sync of every tool (PRD: drift detection): 3 a.m. Eastern unless PORTAL_SYNC_CRON says otherwise ("-" turns it off; decision 181). */
 @Configuration(proxyBeanMethods = false)
 class SyncSchedule(private val requests: SyncRequests) {
-	@Scheduled(cron = "\${portal.sync.cron:-}", zone = "America/New_York")
+	@Scheduled(cron = "\${portal.sync.cron:0 0 3 * * *}", zone = "America/New_York")
 	fun nightly() = requests.request("schedule")
 }
 

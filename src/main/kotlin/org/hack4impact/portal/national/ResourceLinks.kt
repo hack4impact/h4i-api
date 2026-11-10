@@ -182,6 +182,8 @@ class ResourceLinks(
 			"link" -> link(resource, tool, decision, viewer)
 			"rename" -> rename(resource, tool, decision.newName, viewer)
 			"unmanaged" -> {
+				// A resource the portal created and manages isn't waiting for a decision: one request mustn't drop it (review L4).
+				if (resource.managed == "portal" && resource.externalId != null) throw unprocessable("The portal created ${resource.name}: there's nothing to decide about it")
 				dsl.update(RESOURCE).set(RESOURCE.MANAGED, "unmanaged").where(RESOURCE.ID.eq(id)).execute()
 				audit(viewer, "resource.unmanaged", id, resource.chapterId, mapOf("name" to resource.name))
 			}
@@ -196,6 +198,8 @@ class ResourceLinks(
 		// Detached resources stay adopted until their removals are done, and may be linked again.
 		val attached = dsl.fetchExists(CHAPTER_RESOURCE, CHAPTER_RESOURCE.RESOURCE_ID.eq(resource.id)) || dsl.fetchExists(PROJECT_RESOURCE, PROJECT_RESOURCE.RESOURCE_ID.eq(resource.id))
 		if (resource.managed == "adopted" && attached) throw unprocessable("${resource.name} is already linked: detach it first")
+		// Linking one the portal created would make it adopted, so it would no longer be archived on close (review L4).
+		if (resource.managed == "portal" && resource.externalId != null) throw unprocessable("The portal created ${resource.name}: there's nothing to link")
 		val to = target(resource, decision.target, decision.projectSlug, decision.access)
 		val preview = preview(resource.id!!, decision.target, decision.projectSlug, decision.access)
 		if (preview.willAdd != decision.confirmedAdds) {

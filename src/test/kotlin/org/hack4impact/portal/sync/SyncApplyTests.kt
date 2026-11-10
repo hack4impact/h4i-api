@@ -47,6 +47,7 @@ class SyncApplyTests(
 	@Autowired private val slack: InMemoryReadAdapter,
 	@Autowired private val github: InMemoryReadAdapter,
 	@Autowired private val queue: org.hack4impact.portal.national.AdminQueue,
+	@Autowired private val retries: SyncRetries,
 ) {
 	private lateinit var umd: UUID
 	private lateinit var project: UUID
@@ -226,7 +227,8 @@ class SyncApplyTests(
 		applying("slack")
 		dsl.update(TOOL_SETTING).set(TOOL_SETTING.MAX_REMOVALS, 0).where(TOOL_SETTING.TOOL.eq("slack")).execute()
 		slackRun()
-		dsl.update(PROJECT_MEMBER).set(PROJECT_MEMBER.REMOVED_AT, OffsetDateTime.now()).where(PROJECT_MEMBER.PERSON_ID.eq(people.getValue("Bo"))).execute()
+		// Not something a lead did to the team: Bo stopped being a member at all (a lead's removal isn't held, decision 178).
+		dsl.update(PERSON).set(PERSON.STATUS, "removed").where(PERSON.ID.eq(people.getValue("Bo"))).execute()
 		member("Cy")
 		slack.writes.clear()
 
@@ -307,18 +309,15 @@ class SyncApplyTests(
 	}
 
 	@Test
-	fun `closing a project empties its channel and then archives it, but not while removals are held`() {
+	fun `closing a project empties its channel and archives it, and the removal limit doesn't hold it`() {
 		applying("slack")
 		slackRun()
 		dsl.update(PROJECT).set(PROJECT.STATUS, "closed").where(PROJECT.ID.eq(project)).execute()
+		// Even the strictest limit: a close is the lead's own act (decision 178), and it removes the whole team.
 		dsl.update(TOOL_SETTING).set(TOOL_SETTING.MAX_REMOVALS, 0).where(TOOL_SETTING.TOOL.eq("slack")).execute()
 		slack.writes.clear()
-		val held = slackRun()
-		assertEquals(emptyList(), slack.writes)
-		assertTrue("archive_resource:held" in outcomes(held.runId))
-
-		dsl.update(TOOL_SETTING).set(TOOL_SETTING.MAX_REMOVALS, 25).where(TOOL_SETTING.TOOL.eq("slack")).execute()
 		val run = slackRun()
+		assertEquals("completed", run.status)
 		assertEquals("archive new-umd-rise-dc", slack.writes.last()) // after both members are out
 		assertEquals(setOf("revoke new-umd-rise-dc U-ada", "revoke new-umd-rise-dc U-bo"), slack.writes.dropLast(1).toSet())
 		assertEquals(1, run.archives)
@@ -376,5 +375,71 @@ class SyncApplyTests(
 		assertEquals(listOf("revoke C-old U-bo"), slack.writes) // only who the portal added; Ada stays, the channel stays
 		assertEquals(0, run.archives)
 		assertNull(dsl.select(RESOURCE.ARCHIVED_AT).from(RESOURCE).where(RESOURCE.ID.eq(channel)).fetchSingle().value1())
+	}
+
+	private fun missingTasks() = dsl.fetchCount(
+		org.hack4impact.portal.db.tables.references.ADMIN_TASK,
+		org.hack4impact.portal.db.tables.references.ADMIN_TASK.ACTION.eq("missing_resource"), org.hack4impact.portal.db.tables.references.ADMIN_TASK.STATUS.eq("open"),
+	)
+
+	@Test
+	fun `a channel deleted in Slack is left out of the plan and goes to national once, until it's back`() {
+		applying("slack")
+		slackRun()
+		val created = slack.resources
+		slack.resources = emptyMap() // deleted in Slack
+		slack.writes.clear()
+
+		val run = slackRun()
+		assertEquals(emptyList(), slack.writes) // nobody is added to what isn't there: no failures, no dead letters
+		assertEquals(0, run.adds)
+		assertEquals(1, run.missingResources)
+		slackRun()
+		assertEquals(1, missingTasks())
+
+		slack.resources = created
+		slackRun()
+		assertEquals(0, missingTasks())
+	}
+
+	@Test
+	fun `someone whose only Slack account is deactivated is waited for, not invited by it`() {
+		slack.accounts = slack.accounts.map { if (it.externalId == "U-bo") it.copy(state = AccountState.SUSPENDED) else it }
+		applying("slack")
+		slackRun()
+		assertTrue(slack.writes.none { "U-bo" in it }, slack.writes.toString())
+		assertEquals("waiting_on_member", record("Bo")!!.status)
+	}
+
+	@Test
+	fun `the retry pass asks for tools with unfinished work, only when they're out of dry run`() {
+		member("Cy") // no Slack account: waited for
+		val later = java.time.OffsetDateTime.now().plusHours(2)
+		slackRun()
+		assertEquals(emptySet(), retries.due(later)) // in dry run: nothing a run could finish
+		applying("slack")
+		slackRun()
+		assertEquals("waiting_on_member", record("Cy")!!.status)
+		assertEquals(emptySet(), retries.due(java.time.OffsetDateTime.now())) // just looked
+		assertEquals(setOf(Tool.SLACK), retries.due(later))
+	}
+
+	@Test
+	fun `a member a lead removes isn't held, while other removals in the same run still are`() {
+		applying("slack")
+		dsl.update(TOOL_SETTING).set(TOOL_SETTING.MAX_REMOVALS, 0).where(TOOL_SETTING.TOOL.eq("slack")).execute()
+		slackRun()
+		dsl.update(PROJECT_MEMBER).set(PROJECT_MEMBER.REMOVED_AT, OffsetDateTime.now()).where(PROJECT_MEMBER.PERSON_ID.eq(people.getValue("Bo"))).execute()
+		slack.writes.clear()
+		val lead = slackRun()
+		assertEquals("completed", lead.status)
+		assertEquals(listOf("revoke new-umd-rise-dc U-bo"), slack.writes)
+
+		// Ada is still on the team but stopped being a member: nobody asked for that removal, so it waits.
+		dsl.update(PERSON).set(PERSON.STATUS, "removed").where(PERSON.ID.eq(people.getValue("Ada"))).execute()
+		slack.writes.clear()
+		val other = slackRun()
+		assertEquals("paused", other.status)
+		assertEquals(emptyList(), slack.writes)
 	}
 }

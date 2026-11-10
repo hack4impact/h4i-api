@@ -1,5 +1,7 @@
 package org.hack4impact.portal.adapters.slack
 
+import org.hack4impact.portal.adapters.AdapterException
+import org.hack4impact.portal.adapters.Rejected
 import org.hack4impact.portal.adapters.AccountRef
 import org.hack4impact.portal.adapters.GrantResult
 import org.hack4impact.portal.adapters.HttpJson
@@ -27,7 +29,20 @@ class SlackWriteAdapter(
 
 	override fun grant(resourceId: String, account: AccountRef, access: Access): GrantResult {
 		val user = account.id ?: return GrantResult.WAITING
-		call("conversations.invite", mapOf("channel" to resourceId, "users" to user), alreadyDone = setOf("already_in_channel"))
+		val invite = { call("conversations.invite", mapOf("channel" to resourceId, "users" to user), alreadyDone = setOf("already_in_channel")) }
+		try {
+			invite()
+		} catch (e: Rejected) {
+			// Slack lets only a member invite. The app is in the channels it created, not in an existing public one national
+			// linked: it joins (scope `channels:join`) and invites again. A private channel can't be joined: someone adds the app.
+			if ("not_in_channel" !in e.message.orEmpty()) throw e
+			try {
+				call("conversations.join", mapOf("channel" to resourceId))
+			} catch (joining: AdapterException) {
+				throw Rejected(tool, "conversations.invite: not_in_channel, and the portal's Slack app couldn't join the channel (${joining.message}): add the app to the channel, or give it the channels:join scope")
+			}
+			invite()
+		}
 		return GrantResult.DONE
 	}
 

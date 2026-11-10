@@ -208,6 +208,10 @@ class ProjectService(
 			val naming = described.naming ?: bad("The portal can't manage ${described.name} resources")
 			val name = normalizeName(tool, input.name ?: "")
 			if (!naming.pattern.matches(name)) bad("A ${described.name} name needs ${naming.hint}")
+			// A lead names only their own chapter's resources: otherwise any unused name is theirs to take, and a Google
+			// group at any hack4impact.org address would deliver its mail to their team (2026-11-09 review H3). National may.
+			val code = dsl.select(CHAPTER.CODE).from(CHAPTER).where(CHAPTER.ID.eq(chapterId)).fetchSingle().value1()!!.lowercase()
+			if (!viewer.nationalAdmin && !name.lowercase().startsWith("$code-")) bad("A new ${described.name} name starts with \"$code-\" (national can add one that doesn't)")
 			if (existing(chapterId, tool, name) != null) conflict("This chapter already has $name in $tool: attach that one instead")
 			insertResource(chapterId, tool, name, tags(input.tags.orEmpty()))
 		}

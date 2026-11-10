@@ -59,6 +59,13 @@ class MemberDbWriter(private val dsl: DSLContext, private val memberDb: MemberDb
 		private val BACKOFF = listOf(Duration.ofMinutes(1), Duration.ofMinutes(5), Duration.ofMinutes(30), Duration.ofHours(2))
 		fun backoff(attempts: Int): Duration = BACKOFF[(attempts - 1).coerceIn(0, BACKOFF.lastIndex)]
 
+		/** The member database couldn't be reached at all (down, network, pool timeout), as opposed to refusing a write. */
+		fun unreachable(e: Throwable): Boolean = generateSequence(e) { it.cause }.take(10).any {
+			it is java.sql.SQLTransientConnectionException || it is java.sql.SQLNonTransientConnectionException || it is java.net.ConnectException ||
+				it is java.net.SocketTimeoutException || it is org.springframework.jdbc.CannotGetJdbcConnectionException ||
+				it is org.springframework.transaction.CannotCreateTransactionException || it is org.springframework.dao.DataAccessResourceFailureException
+		}
+
 		/** The portal's status as the member database's status and type (decision 40, written back). Null: not written. */
 		fun statusAndType(status: String, kind: String): Pair<String, String?>? = when (status) {
 			"active", "removal_requested" -> "active" to if (kind == "community") "community" else "student"
@@ -229,8 +236,10 @@ class MemberDbWriter(private val dsl: DSLContext, private val memberDb: MemberDb
 			}
 			true
 		} catch (e: Exception) {
-			val attempts = requested.value2()!! + 1
-			val giveUp = e is MemberDbConflict || attempts >= MAX_ATTEMPTS
+			// Unreachable isn't this write's failure: not counted, so an outage doesn't strand every write (review M5).
+			val down = unreachable(e)
+			val attempts = requested.value2()!! + if (down) 0 else 1
+			val giveUp = !down && (e is MemberDbConflict || attempts >= MAX_ATTEMPTS)
 			log.warn("Member database write for {} failed (attempt {}): {}", person, attempts, e.message)
 			dsl.update(MEMBER_DB_WRITE).set(MEMBER_DB_WRITE.ATTEMPTS, attempts).set(MEMBER_DB_WRITE.LAST_ERROR, (e.message ?: e.javaClass.simpleName).take(500))
 				.set(MEMBER_DB_WRITE.STATE, if (giveUp) "failed" else "pending")

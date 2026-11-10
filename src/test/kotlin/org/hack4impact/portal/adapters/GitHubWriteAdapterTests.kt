@@ -1,5 +1,6 @@
 package org.hack4impact.portal.adapters
 
+import org.hack4impact.portal.sync.ExistingResources
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.delete
@@ -43,7 +44,10 @@ class GitHubWriteAdapterTests {
 		server.verify(postRequestedFor(urlEqualTo("/orgs/$org/teams")).withRequestBody(equalToJson("""{"name":"umd-rise-dc","privacy":"closed"}""")))
 
 		server.stubFor(post(urlEqualTo("/orgs/$org/teams")).willReturn(json(422, """{"message":"Validation Failed","errors":[{"message":"Name must be unique for this org"}]}""")))
-		assertContains(assertFailsWith<Rejected> { adapter.create("umd-rise-dc") }.message!!, "adopt it instead")
+		val taken = assertFailsWith<Rejected> { adapter.create("umd-rise-dc") }
+		assertContains(taken.message!!, "adopt it instead")
+		// Recognized as "already exists", so it goes to national instead of being retried (2026-11-09 review L1).
+		assertEquals(true, ExistingResources.alreadyExists(taken))
 	}
 
 	@Test

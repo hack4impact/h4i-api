@@ -83,4 +83,25 @@ class SlackWriteAdapterTests {
 		adapter.archive("C123")
 		server.verify(postRequestedFor(urlEqualTo("/conversations.archive")).withRequestBody(equalToJson("""{"channel":"C123"}""")))
 	}
+
+	@Test
+	fun `joins a public channel the app isn't in, then invites`() {
+		val scenario = com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED
+		val reply = { body: String -> aResponse().withHeader("Content-Type", "application/json").withBody(body) }
+		server.stubFor(post(urlEqualTo("/conversations.invite")).inScenario("join").whenScenarioStateIs(scenario)
+			.willReturn(reply("""{"ok":false,"error":"not_in_channel"}""")).willSetStateTo("joined"))
+		server.stubFor(post(urlEqualTo("/conversations.invite")).inScenario("join").whenScenarioStateIs("joined").willReturn(reply("""{"ok":true}""")))
+		answer("conversations.join", """{"ok":true}""")
+		assertEquals(GrantResult.DONE, adapter.grant("C123", AccountRef("U1"), Access.WRITE))
+		server.verify(postRequestedFor(urlEqualTo("/conversations.join")).withRequestBody(equalToJson("""{"channel":"C123"}""")))
+		server.verify(2, postRequestedFor(urlEqualTo("/conversations.invite")))
+	}
+
+	@Test
+	fun `a channel the app can't join fails that change only, and says to add the app`() {
+		answer("conversations.invite", """{"ok":false,"error":"not_in_channel"}""")
+		answer("conversations.join", """{"ok":false,"error":"missing_scope"}""")
+		val e = assertFailsWith<Rejected> { adapter.grant("C123", AccountRef("U1"), Access.WRITE) }
+		assertContains(e.message!!, "add the app to the channel")
+	}
 }

@@ -28,7 +28,7 @@ class GitHubWriteAdapter(
 	override fun create(name: String): String = try {
 		http.postJson("$baseUrl/orgs/$org/teams", mapOf("name" to name, "privacy" to "closed"), headers()).body.text("slug")!!
 	} catch (e: Rejected) {
-		throw Rejected(tool, "${e.message} (a team called $name probably exists already: adopt it instead)")
+		throw Rejected(tool, "${e.message} (a team called $name probably exists already: adopt it instead)", e.status)
 	}
 
 	override fun grant(resourceId: String, account: AccountRef, access: Access): GrantResult {
