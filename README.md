@@ -133,6 +133,6 @@ Each tool with `PORTAL_ADAPTERS_<TOOL>_WRITE=true` takes part; created resources
 
 ## Deploy
 
-Every push to `main` runs CI and pushes `ghcr.io/<owner>/<repository>:<sha>` and `:main`. The Dockerfile packages the jar built by `./gradlew bootJar`.
+Every pull request and every push to `main` or `develop` runs CI. A push to `main` also pushes `ghcr.io/<owner>/<repository>:<sha>` and `:main`. The Dockerfile packages the jar built by `./gradlew bootJar`.
 
 Staging runs on a developer's computer: `deploy/staging/up.sh [tag]` pulls an image and starts it with its own Postgres on http://localhost:8082, beside the full portal's staging (8081). It needs `deploy/staging/.env` with `PORTAL_DB_PASSWORD`, built from the vault with `deploy/fetch-secrets.sh "<vault item>" deploy/staging/.env`.

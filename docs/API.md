@@ -1,12 +1,12 @@
 # Stage 1 API reference
 
-The HTTP API of the H4I member portal, stage 1 (Members, Approvals, Claim and Join). This app has no UI: a separate frontend calls it. This page is for the people building that frontend.
+The HTTP API of the H4I member portal: stage 1 (Members, Approvals, Claim and Join) and stage 2 (projects, their tools and agreements, marked *Stage 2* below). This app has no UI: a separate frontend calls it. This page is for the people building that frontend.
 
 - **Machine-readable contract:** [`../openapi.json`](../openapi.json) (OpenAPI 3.1). Generate your client and types from it, e.g. with `openapi-typescript` and `openapi-fetch`. A test (`OpenApiSpecTests`) fails the build if it no longer matches the code, so it's always current on `main`.
 - **This page** adds what the spec can't say: how sign-in works, who may call what, every error, the side effects (emails, accounts), and the order of calls in each flow.
 - **Running it next to your frontend:** [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md).
 
-Checked against the code and a running instance on 2026-10-31.
+The stage 1 endpoints were checked against the code and a running instance on 2026-10-31. The endpoint list was checked against `openapi.json` on 2026-11-11: every operation in the spec is on this page.
 
 ## Contents
 
@@ -19,10 +19,10 @@ Checked against the code and a running instance on 2026-10-31.
    - [Public](#61-public)
    - [Signed-in members](#62-signed-in-members-google)
    - [Chapters: members and approvals](#63-chapters-members-approvals-settings-roster)
-   - [Projects](#63a-projects-stage-2)
-   - [National](#64-national)
-   - [Applicants](#65-applicants-apiapply)
-   - [Agreements and webhooks](#66-agreements-and-webhooks)
+   - [Projects and sync](#64-projects-and-sync-stage-2)
+   - [National](#65-national)
+   - [Applicants](#66-applicants-apiapply)
+   - [Agreements and webhooks](#67-agreements-and-webhooks)
 7. [Types and values](#7-types-and-values)
 8. [Limits and timings](#8-limits-and-timings)
 
@@ -155,11 +155,14 @@ Statuses used:
 | `401` | No session, or the applicant session ended |
 | `403` | Not allowed: no role in the chapter, not a lead, not national, no CSRF token. Also, as a problem detail, a chapter that runs its own application process |
 | `404` | No such chapter, registration, person, task, template or link |
-| `409` | Not possible in the current state: already decided, already sent, already claimed, a second H4I account not confirmed, the member database not configured |
+| `409` | Not possible in the current state: already decided, already sent, already claimed, a second H4I account not confirmed, the member database not configured, a closed project, a name that's taken |
 | `410` | A claim link or roster invite that's used, expired or already done |
+| `422` | *Stage 2 endpoints only.* The JSON is readable but a field is missing or names something that can't be used: an unknown or deleted partner, a link target that doesn't fit, a blank partner name. Handle it like `400`: `detail` says what |
 | `429` | Rate limited: "Too many tries. Wait a little and try again." See [limits](#8-limits-and-timings) |
 | `500` | A bug: "Something went wrong on our side. Try again, and tell national if it keeps happening." Logged with a stack trace |
-| `503` | GitHub sign-in isn't configured on this server |
+| `503` | Something this server depends on isn't set up or can't be reached: GitHub sign-in isn't configured; *stage 2:* the member database or a tool isn't connected or didn't answer. `detail` says which |
+
+Success is `200` with a body unless an endpoint says otherwise: `201` for a created project, `202` for work that continues in the background (sending a code, starting a sync), `204` for no body.
 
 Unique-constraint races answer `409` "Someone else just changed this, or it already exists. Reload and try again."
 
@@ -228,9 +231,29 @@ POST /api/apply/me/submit                  → ApplicantView, status "submitted"
 
 What approval does: the person becomes `active` in the chapter, their GitHub account is recorded, and they get an `@hack4impact.org` Google account if they have none (first name, then first.last and so on, in the chapter's org unit). If the account can't be created automatically, national gets a task on the admin queue instead, and the approval still succeeds. Then they're emailed (with the temporary password, if an account was made) and queued for the member database.
 
+### Projects (stage 2: a lead runs a project)
+
+```
+GET  /api/project-roles, /api/partners, /api/chapters/{code}/terms      pick lists for the form
+POST /api/chapters/{code}/projects                {name, …}      → 201 ProjectDetail, status "draft"
+GET  /api/chapters/{code}/projects/{slug}/candidates             who can be added
+POST /api/chapters/{code}/projects/{slug}/members {personId, roleId}
+POST /api/chapters/{code}/projects/{slug}/status  {status: "active"}
+GET  /api/chapters/{code}/sync                                   what the tools did, or would do
+```
+
+1. **Create.** The new project is a `draft` with the standard resources: a Slack channel and Google group for the team, and a GitHub team and Vaultwarden collection that wait for the project agreement.
+2. **Build the team and adjust resources** while it's a draft. `ProjectDetail.preview` shows who would get access, as if it were active.
+3. **Start it** by setting the status to `active`. It needs a partner (`422` otherwise). The project agreement goes out to everyone on the team, and to anyone added later.
+4. **The tools follow.** Every change asks for a sync, which runs once the request commits. A tool that national still has in dry run only plans: `ProjectDetail.planned` and `GET /api/chapters/{code}/sync` show what it would do. `POST /api/chapters/{code}/sync/run` plans again on request.
+5. **Each member** gets one email per change ("Your UMD projects and access") linking to `/projects/<chapter>/<slug>`. Their own page (`GET /api/me/home`) lists the project and each tool's `state`. `after_agreement` means they must sign first: `POST /api/me/agreements/{id}/sign` gives the link, and Documenso returns them to `/agreements/<id>`.
+6. **Pause or close.** `active` and `paused` switch back and forth; either can be `closed`. A closed project can't change (`409`).
+
+A project's own leads (a lead project role) can do the team calls and nothing else.
+
 ## 6. Endpoint reference
 
-Each entry: who may call it, input, output, errors, side effects. Types are in [section 7](#7-types-and-values). "Lead" means lead or co-lead of that chapter, or a national admin.
+Each entry: who may call it, input, output, errors, side effects. Types are in [section 7](#7-types-and-values). "Lead" means lead or co-lead of that chapter, or a national admin. "Project lead" (stage 2) means someone with a lead project role on that project.
 
 ### 6.1 Public
 
@@ -422,25 +445,160 @@ Returns `RosterResult`:
 - Errors: `400` "The roster is empty"; `400` "The first line needs columns first_name, last_name, school_email (and optionally personal_email)"; `400` "At most 500 people per roster".
 - Side effects: each invited row is emailed a personal link (after the request commits, in the background); audited.
 
-### 6.3a Projects (stage 2)
+### 6.4 Projects and sync (stage 2)
 
-Projects, their teams and resources. Reading a project needs a role in its chapter, or leading it (a lead project role); changing it needs lead, co-lead or national; a project's own leads change its team, and nothing else (decision 133). Every change answers with the updated `ProjectDetail`, asks for a sync in the same transaction (the tools follow once it commits), and emails everyone whose projects or access it changed one summary ("Your UMD projects and access", linking to `/projects/<chapter>/<slug>`). A closed project can't change (`409` "This project is closed").
+Projects, their teams and resources. The order of calls is in [Projects](#projects-stage-2-a-lead-runs-a-project).
 
-- **`GET /api/project-roles`** (signed in) → `[{"id", "name", "isLead"}]`, leads first. Role names are the member database's; the frontend chooses labels.
-- **`GET /api/partners`** (leads) → `[{"id", "name", "website"}]`. A missing one is added by national: **`POST /api/national/partners`** `{"name", "website"?}` → the partner; `409` a name that exists in any case, or one deleted in the member database ("Restore it there…", since the pull follows the member database); `422` a blank name.
-- **`GET /api/chapters/{code}/terms`** (lead) → `[{"id", "label"}]`, the school's semesters, newest first.
-- **`GET /api/chapters/{code}/past-projects`** (lead) → `[{"id", "name"}]`: the member database's projects with no engagement, read live, that no portal project links yet. `503` when the member database isn't connected or can't be reached.
-- **`GET /api/chapters/{code}/resources`** (lead) → `[{"id", "tool", "name", "state", "projects"}]`, to attach one to another project.
-- **`GET /api/chapters/{code}/projects`** (any role) → `ProjectSummary[]`: `{"id", "name", "slug", "status", "type", "tags", "term", "partner", "members", "resources", "updatedAt"}`, active first.
-- **`POST /api/chapters/{code}/projects`** (lead) with `{"name", "slug"?, "type"?, "tags"?, "termId"?, "partnerId"?, "pastProjectId"?, "startsOn"?, "endsOn"?}` → `201` `ProjectDetail`, a `draft` with the standard resources (Slack channel and Google group for the team; GitHub team and Vaultwarden collection after the project agreement). `409` the short name is taken; `422` an unknown or deleted `partnerId`, or a `pastProjectId` that has an engagement, isn't in the member database or is linked already; `400` other bad fields.
-- **`GET /api/chapters/{code}/projects/{slug}`** (a role in the chapter, or a project lead of it) → `ProjectDetail`: the fields above plus `partnerId`, `pastProjectId`, `startsOn`, `endsOn`, `members[]` (`{"personId", "name", "email", "status", "roleId", "role", "isLead", "agreementStatus", "agreement"}`; `agreement` is their latest project agreement, `{"id", "status", "sentAt", "signedAt", "reminders", "hasPdf", "error", "declineReason"}`, or null), `resources[]` (`{"resourceId", "tool", "name", "state", "managed", "audience", "roleId", "role", "access", "requiresAgreement", "tags", "sharedWith", "existsInTool", "getting", "awaitingAgreement", "url", "sync"}`), `agreementsSigned`, `preview` (a draft as if active), `planned` (the latest runs' changes for its resources, as in `ChapterSync`), `lastDryRunAt`, `plannedOutOfDate`, `activity`, `activityMore`, `canEdit`, `canEditTeam`.
-- **`PUT /api/chapters/{code}/projects/{slug}`** (lead), the create body without `slug`. `pastProjectId` changes only while a draft (`422` after); a started project keeps a partner (`422`).
-- **`POST /api/chapters/{code}/projects/{slug}/status`** (lead) `{"status": "active" | "paused" | "closed"}`. Starting needs a partner (`422` "Choose the project's partner before starting it"), one not deleted in the member database since it was picked (`422`), and sets `startsOn` to today if empty. An edit checks the partner only when it changes. `409` a move that isn't allowed (draft → active or closed; active ↔ paused; either → closed).
-- **`GET …/projects/{slug}/candidates`** (lead, project lead) → `[{"personId", "name", "status"}]`: the chapter's active members and alumni not on the team.
-- **`POST …/projects/{slug}/members`** (lead, project lead) `{"personId", "roleId"}` (on a live project, the project agreement goes out; the GitHub team and vault collection wait for the signature); **`PUT …/members/{personId}`** `{"roleId"}`; **`DELETE …/members/{personId}`**. `roleId` is required (`400` "Choose the person's project role"); `400` someone not in the chapter, or not active or alumni; `409` already on it; `404` not on it.
-- **`POST …/projects/{slug}/resources`** (lead) `{"resourceId"}` to share one of the chapter's, or `{"tool", "name"}` for a new one, plus `audience` (`team`, `role` with `roleId`, `leads`), `access` (`read`, `write`, `admin`), `requiresAgreement`, `tags`. **`PUT …/resources/{resourceId}`** changes who gets it; **`DELETE …/resources/{resourceId}`** detaches it (one never created and used by nothing else is dropped). `400` a tool the portal doesn't create resources in, a name the tool doesn't allow, or (for anyone but national) a new name that doesn't start with `<chapter code>-`; `409` already attached, or the chapter has that name already.
-- **`GET …/projects/{slug}/activity?before=&limit=20`** (as reading) → `{"items": [{"at", "kind", "text", "actor", "details"}], "more"}`, newest first. `kind`: `change`, `sync` or `agreement` (signed or declined).
-- **`GET /api/chapters/{code}/members/{personId}/access`** (lead) → the member's `access[]` (as on `/api/me/home`) for this chapter's resources. `404` not a member of the chapter.
+Rules for every endpoint here:
+
+- **Reading** a project needs a role in its chapter, or being a project lead of it.
+- **Changing** a project needs lead, co-lead or national. A project lead changes its team, and nothing else (decision 133).
+- **Every change** answers with the updated `ProjectDetail` and asks for a sync in the same transaction; the tools follow once it commits.
+- **Every change emails** everyone whose projects or access it changed, one summary each ("Your UMD projects and access", linking to `/projects/<chapter>/<slug>`).
+- **A closed project can't change:** `409` "This project is closed".
+
+#### Pick lists for the project form
+
+| Endpoint | Who | Returns |
+| --- | --- | --- |
+| `GET /api/project-roles` | Signed in | `[{"id", "name", "isLead"}]`, leads first. Role names are the member database's; the frontend chooses labels |
+| `GET /api/partners` | Leads | `[{"id", "name", "website"}]` |
+| `GET /api/chapters/{code}/terms` | Lead | `[{"id", "label"}]`: the school's semesters, newest first |
+| `GET /api/chapters/{code}/past-projects` | Lead | `[{"id", "name"}]`: the member database's projects with no engagement, read live, that no portal project links yet. `503` when the member database isn't connected or can't be reached |
+| `GET /api/chapters/{code}/resources` | Lead | `[{"id", "tool", "name", "state", "projects"}]`: the chapter's resources, to attach one to another project |
+
+#### `POST /api/national/partners` (national)
+
+Adds a partner that's missing from the list. Body `{"name", "website"?}`. Returns the partner.
+
+| Error | When |
+| --- | --- |
+| `409` | The name exists already, in any letter case |
+| `409` "Restore it there…" | The name was deleted in the member database (the pull follows the member database) |
+| `422` | A blank name |
+
+#### `GET /api/chapters/{code}/projects`
+
+Any role. Returns `ProjectSummary[]`, active first:
+
+`{"id", "name", "slug", "status", "type", "tags", "term", "partner", "members", "resources", "updatedAt"}`
+
+#### `POST /api/chapters/{code}/projects` (lead)
+
+Body `ProjectInput`: `name`, and optionally `slug`, `type`, `tags`, `termId`, `partnerId`, `pastProjectId`, `startsOn`, `endsOn`.
+
+Answers `201` with the `ProjectDetail`: a `draft` with the standard resources (a Slack channel and Google group for the team; a GitHub team and Vaultwarden collection after the project agreement).
+
+| Error | When |
+| --- | --- |
+| `409` | The short name (`slug`) is taken |
+| `422` | An unknown or deleted `partnerId` |
+| `422` | A `pastProjectId` that has an engagement, isn't in the member database, or is linked already |
+| `400` | Other bad fields |
+
+#### `GET /api/chapters/{code}/projects/{slug}`
+
+A role in the chapter, or a project lead of it. Returns `ProjectDetail`: `id`, `name`, `slug`, `status`, `type`, `tags`, `term` and `partner` as in `ProjectSummary`, plus:
+
+| Field | Meaning |
+| --- | --- |
+| `termId`, `partnerId`, `pastProjectId`, `startsOn`, `endsOn` | What the form edits |
+| `members[]` | The team, see below |
+| `resources[]` | Its resources, see below |
+| `agreementsSigned` | How many members signed the project agreement (or were waived from it), out of `members` |
+| `preview` | Who would get access; for a draft, as if it were active |
+| `planned` | Each tool's latest run for its resources: what a dry run would change, or what an applying run did. Shaped as `changes` in [`ChapterSync`](#get-apichapterscodesync-lead) |
+| `lastDryRunAt`, `plannedOutOfDate` | The latest run's time, and whether the project changed after it (so `planned` may be out of date; also `true` when there's been no run) |
+| `activity`, `activityMore` | The latest few [activity](#get-apichapterscodeprojectsslugactivity) items, and whether there are older ones |
+| `canEdit`, `canEditTeam` | What the caller may change: the project; its team (leads, co-leads, national and the project's own leads) |
+
+`members[]`:
+
+`{"personId", "name", "email", "status", "roleId", "role", "isLead", "agreementStatus", "agreement"}`
+
+- `agreement` is their latest project agreement, or `null`: `{"id", "status", "sentAt", "signedAt", "reminders", "hasPdf", "error", "declineReason"}`.
+
+`resources[]`:
+
+`{"resourceId", "tool", "name", "state", "managed", "audience", "roleId", "role", "access", "requiresAgreement", "tags", "sharedWith", "existsInTool", "getting", "awaitingAgreement", "url", "sync"}`
+
+#### `PUT /api/chapters/{code}/projects/{slug}` (lead)
+
+The create body without `slug`. Returns `ProjectDetail`.
+
+- `pastProjectId` changes only while the project is a draft (`422` after).
+- A started project keeps a partner: removing it is `422`.
+- The partner is checked only when it changes.
+
+#### `POST /api/chapters/{code}/projects/{slug}/status` (lead)
+
+Body `{"status": "active"}`, or `"paused"` or `"closed"`. Returns `ProjectDetail`.
+
+Allowed moves: `draft` → `active` or `closed`; `active` ↔ `paused`; `active` or `paused` → `closed`.
+
+Starting (→ `active`) sets `startsOn` to today if it's empty, and sends the project agreement to the team.
+
+| Error | When |
+| --- | --- |
+| `409` | A move that isn't allowed |
+| `422` "Choose the project's partner before starting it" | Starting without a partner |
+| `422` | Starting with a partner deleted in the member database since it was picked |
+
+#### Team
+
+Lead or project lead. Each returns `ProjectDetail`.
+
+| Endpoint | Body | Does |
+| --- | --- | --- |
+| `GET /api/chapters/{code}/projects/{slug}/candidates` | | Returns `[{"personId", "name", "status"}]` instead: the chapter's active members and alumni not on the team |
+| `POST /api/chapters/{code}/projects/{slug}/members` | `{"personId", "roleId"}` | Adds them. On a live project, the project agreement goes out; the GitHub team and vault collection wait for the signature |
+| `PUT /api/chapters/{code}/projects/{slug}/members/{personId}` | `{"roleId"}` | Changes their role |
+| `DELETE /api/chapters/{code}/projects/{slug}/members/{personId}` | | Takes them off |
+
+| Error | When |
+| --- | --- |
+| `400` "Choose the person's project role" | No `roleId` |
+| `400` | Someone not in the chapter, or not active or alumni |
+| `409` | Already on the team |
+| `404` | Not on the team |
+
+#### Resources of a project
+
+Lead. Each returns `ProjectDetail`.
+
+**`POST /api/chapters/{code}/projects/{slug}/resources`** attaches a resource. Body `ResourceInput`, one of:
+
+- `{"resourceId"}`: share one the chapter already has (from `GET /api/chapters/{code}/resources`).
+- `{"tool", "name"}`: a new one.
+
+Both take who gets it: `audience` (`team`, `role` with `roleId`, or `leads`), `access` (`read`, `write`, `admin`), `requiresAgreement` and `tags`.
+
+**`PUT /api/chapters/{code}/projects/{slug}/resources/{resourceId}`** changes who gets it.
+
+**`DELETE /api/chapters/{code}/projects/{slug}/resources/{resourceId}`** detaches it. One that was never created and that nothing else uses is dropped.
+
+| Error | When |
+| --- | --- |
+| `400` | A tool the portal doesn't create resources in |
+| `400` | A name the tool doesn't allow |
+| `400` | For anyone but national: a new name that doesn't start with `<chapter code>-` |
+| `409` | Already attached, or the chapter has that name already |
+
+#### `GET /api/chapters/{code}/projects/{slug}/activity`
+
+As reading the project. Query `?before=&limit=20`. Newest first:
+
+```json
+{"items": [{"at": "…", "kind": "change", "text": "…", "actor": "Lena Test", "details": []}], "more": false}
+```
+
+- `kind`: `change` (someone edited the project), `sync` (the tools were changed) or `agreement` (signed or declined).
+- `actor`: who did it; `null` for the sync and for people's own signatures.
+- `details`: more lines behind the item (a big sync, by person), to show when it's expanded.
+
+#### `GET /api/chapters/{code}/members/{personId}/access` (lead)
+
+The member's `access[]`, as on [`GET /api/me/home`](#get-apimehome), for this chapter's resources. `404` when they aren't a member of the chapter.
 
 #### `GET /api/chapters/{code}/sync` (lead)
 
@@ -461,7 +619,7 @@ Projects, their teams and resources. Reading a project needs a role in its chapt
 
 *Stage 2.* `202`. Plans every tool now without changing any, whatever national's switches say (decision 157); read the result with `GET …/sync`.
 
-### 6.4 National
+### 6.5 National
 
 All need a national admin; anyone else gets `403`.
 
@@ -488,18 +646,55 @@ Things the portal couldn't do itself, for a person to do by hand, e.g. creating 
 
 #### Resources (linking existing ones)
 
-*Stage 2* (decision 170). When a project's channel, group or team already exists, or for a chapter's own channels, national ties the portal's resource to the existing one. A linked resource only gains people: everyone already in it stays.
+*Stage 2* (decision 170). When a project's channel, group or team already exists, or for a chapter's own channels, national ties the portal's resource to the existing one. A linked resource only gains people: everyone already in it stays. All of these are audited.
 
-- **`GET /api/national/chapters/{code}/resources`** → `NationalResource[]`: `{"id", "tool", "name", "externalId", "managed", "target", "projectSlug", "access", "existsInTool"}`. `managed`: `portal`, `adopted` (linked) or `unmanaged`. `target`: `project_team`, `chapter_members`, `chapter_leads` or null. `existsInTool`: the tool has the name and national hasn't decided.
-- **`POST /api/national/chapters/{code}/resources`** with `{"tool": "slack", "name": "#umd"}` or `{"tool": "slack", "externalId": "C0123"}` → the new `NationalResource`, `unmanaged` until linked. `422` both or neither of `name` and `externalId`; `404` the tool doesn't list it (for Slack, the message says to invite the portal's app to a private channel); `409` already linked; `503` the portal isn't connected to the tool or can't read it.
-- **`GET /api/national/resources/{id}/link?target=project_team&projectSlug=rise-dc&access=write`** → `{"resource": {"tool", "name", "externalId"}, "people": [{"personId", "account", "name", "verdict"}], "willAdd": 1}`, read live from the tool. `verdict`: `will_add`, `already_there`, `kept` (in it, not in the target: stays) or `unknown_account`. `access` defaults to `write`; a gated tool's people who haven't signed aren't in `will_add`. `404` the tool no longer lists it; `422` a target that doesn't fit (unknown, or a project not in the resource's chapter).
-- **`POST /api/national/resources/{id}/link`** → the `NationalResource`, and the resource's `resource_exists` task closes.
-  - `{"action": "link", "target": "project_team", "projectSlug": "rise-dc", "access": "write", "confirmedAdds": 1}`: `confirmedAdds` is the preview's `willAdd`. A template resource keeps its audience, level and gate; one national started gets the team, and the agreement gate on GitHub and Vaultwarden. A run of that tool starts after the request. `409` the count changed (preview again) or the existing one is linked to another resource; `422` a missing field, already linked, or a resource the portal created itself.
-  - `{"action": "rename", "newName": "umd-rise-dc-2026"}`: the portal creates its own under the new name; the existing one is left alone. `422` a name the tool doesn't allow, or a resource the portal wasn't about to create.
-  - `{"action": "unmanaged"}`: the portal leaves it alone. `422` for a resource the portal created itself (it isn't waiting for a decision).
-- **`DELETE /api/national/resources/{id}?mode=detach|unmanaged`** → `204`. `detach`: no longer any project's or chapter's; the next run takes back what the portal added. `unmanaged`: the portal stops touching it and removes no one. `422` a resource that isn't linked or a chapter resource, or another mode.
+The usual order: list, add the existing one if it isn't listed, preview the link, then link with the preview's count.
 
-All audited.
+**`GET /api/national/chapters/{code}/resources`** → `NationalResource[]`:
+
+`{"id", "tool", "name", "externalId", "managed", "target", "projectSlug", "access", "existsInTool"}`
+
+- `managed`: `portal`, `adopted` (linked) or `unmanaged`.
+- `target`: `project_team`, `chapter_members`, `chapter_leads` or `null`.
+- `existsInTool`: the tool has the name and national hasn't decided.
+
+**`POST /api/national/chapters/{code}/resources`** registers an existing one. Body: either `{"tool": "slack", "name": "#umd"}` or `{"tool": "slack", "externalId": "C0123"}`. Returns the new `NationalResource`, `unmanaged` until linked.
+
+| Error | When |
+| --- | --- |
+| `422` | Both or neither of `name` and `externalId` |
+| `404` | The tool doesn't list it (for Slack, the message says to invite the portal's app to a private channel) |
+| `409` | Already linked |
+| `503` | The portal isn't connected to the tool, or can't read it |
+
+**`GET /api/national/resources/{id}/link?target=project_team&projectSlug=rise-dc&access=write`** previews a link, read live from the tool. `access` defaults to `write`.
+
+```json
+{"resource": {"tool": "slack", "name": "#umd-rise-dc", "externalId": "C0123"},
+ "people": [{"personId": "6b0c…", "account": "U0456", "name": "Ada Lovelace", "verdict": "will_add"}],
+ "willAdd": 1}
+```
+
+- `personId` and `name` are `null` for an account the portal can't match to a person.
+- `verdict`: `will_add`, `already_there`, `kept` (in it but not in the target: they stay) or `unknown_account`.
+- On a tool gated by the agreement, people who haven't signed aren't in `will_add`.
+- `404` the tool no longer lists it; `422` a target that doesn't fit (unknown, or a project not in the resource's chapter).
+
+**`POST /api/national/resources/{id}/link`** decides. Returns the `NationalResource`, and the resource's `resource_exists` task closes. The body's `action` is one of:
+
+| `action` | Body | Does | Errors |
+| --- | --- | --- | --- |
+| `link` | `{"action": "link", "target": "project_team", "projectSlug": "rise-dc", "access": "write", "confirmedAdds": 1}` | Ties the resource to the existing one. `confirmedAdds` is the preview's `willAdd`. A run of that tool starts after the request | `409` the count changed (preview again), or the existing one is linked to another resource; `422` a missing field, already linked, or a resource the portal created itself |
+| `rename` | `{"action": "rename", "newName": "umd-rise-dc-2026"}` | The portal creates its own under the new name; the existing one is left alone | `422` a name the tool doesn't allow, or a resource the portal wasn't about to create |
+| `unmanaged` | `{"action": "unmanaged"}` | The portal leaves it alone | `422` a resource the portal created itself (it isn't waiting for a decision) |
+
+After `link`: a template resource keeps its audience, level and gate; one national started gets the team, and the agreement gate on GitHub and Vaultwarden.
+
+**`DELETE /api/national/resources/{id}?mode=detach|unmanaged`** → `204`.
+
+- `detach`: it's no longer any project's or chapter's; the next run takes back what the portal added.
+- `unmanaged`: the portal stops touching it and removes no one.
+- `422` a resource that isn't linked or a chapter resource, or another mode.
 
 #### Claim links
 
@@ -559,7 +754,7 @@ The Documenso templates agreements are made from: one active template per kind, 
   - Audited.
 - **`POST /api/national/agreement-templates/{id}/deactivate`** stops making agreements from it; signed ones stay valid. `404` "No such template". Audited.
 
-### 6.5 Applicants (`/api/apply`)
+### 6.6 Applicants (`/api/apply`)
 
 These use the applicant session, not Google. The first four are public; the rest answer `401` without a session. All `POST` and `PUT` calls need the CSRF header.
 
@@ -696,7 +891,7 @@ Errors:
 
 Session. Ends every session of this registration and clears the cookie. `204`.
 
-### 6.6 Agreements and webhooks
+### 6.7 Agreements and webhooks
 
 #### `GET /api/agreements/{id}/pdf`
 
@@ -760,10 +955,15 @@ The full schemas are in `openapi.json`. These are the fields whose meaning or va
 | Graduation season | `spring`, `summer`, `fall`, `winter` |
 | Roster invite `status` | `sent`, `started`, `completed`, `expired` |
 | Admin task `status` | `open`, `done`, `cancelled` |
-| Admin task `action` | e.g. `create_account`, `check_account` (show `description`, which says what to do) |
+| Admin task `action` | `create_account`, `check_account`; *stage 2:* `confirm_removals`, `create_resource`, `add_member`, `remove_member`, `missing_resource`, `resource_exists` (see [Admin queue](#admin-queue)). Show `description`, which says what to do |
 | Agreement `status` (`MyAgreement`) | `sent`, `signed`, `declined`, `expired` |
-| Agreement template `kind` | `volunteer`, `code_of_conduct` |
+| Agreement template `kind` | `volunteer`, `code_of_conduct`; *stage 2:* `project` |
 | Member database pull | `completed`, `unchanged`, `failed` |
+| Project `status` *(stage 2)* | `draft`, `active`, `paused`, `closed` |
+| Resource `audience` *(stage 2)* | `team`, `role` (with `roleId`), `leads` |
+| Resource `access` *(stage 2)* | `read`, `write`, `admin` |
+| Resource `managed` *(stage 2)* | `portal`, `adopted` (linked to an existing one), `unmanaged` |
+| Access `state` *(stage 2, `MemberHome.access`)* | `ready`, `invited`, `setting_up`, `after_agreement`, `not_connected`, `agreement_not_set_up` (see [`GET /api/me/home`](#get-apimehome)) |
 
 ## 8. Limits and timings
 

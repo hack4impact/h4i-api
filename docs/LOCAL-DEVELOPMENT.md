@@ -15,7 +15,9 @@ How to run this API on your machine with the H4I portal frontend in front of it,
 
 The browser only ever talks to the frontend's address. Because of that, the API's cookies (Google session, applicant session, CSRF token) belong to that one origin, which is how the API expects to be deployed. Calling `http://localhost:8080` directly from the frontend's JavaScript won't work: there's no CORS.
 
-Port 5173 is Vite's default. If your dev server uses another port, use it everywhere 5173 appears below.
+Port 5173 is Vite's default. If your dev server uses another port, use it everywhere 5173 appears below, and ask for that port's URLs to be added to the OAuth apps ([step 2](#2-oauth-apps-for-local-use)): sign-in is refused from a port they don't list.
+
+Commands are written for bash: macOS, Linux, or WSL or Git Bash on Windows (the `scripts/*.sh` need one of those anyway). In Windows `cmd`, use `gradlew.bat` instead of `./gradlew`, and double quotes instead of single ones: `--args="--spring.profiles.active=import"`.
 
 ## 1. Prerequisites
 
@@ -26,7 +28,9 @@ Port 5173 is Vite's default. If your dev server uses another port, use it everyw
 
 ## 2. OAuth apps for local use
 
-Ask national (or whoever holds the vault) for a development Google OAuth client and GitHub OAuth app, or make your own. These URLs go through the frontend's port, not 8080:
+**If national gave you the filled settings file** (the vault item "portal development", [step 3](#3-a-local-settings-file)), its development Google client and GitHub app are the ones to use. You create nothing: ask national to confirm the URLs below are on them, and go to step 3.
+
+Otherwise, ask national (or whoever holds the vault) for a development Google OAuth client and GitHub OAuth app, or make your own. These URLs go through the frontend's port, not 8080:
 
 | App | Setting | Value |
 | --- | --- | --- |
@@ -39,7 +43,18 @@ Without Google nobody can sign in. Without GitHub, applicants can't finish Join 
 
 ## 3. A local settings file
 
-Copy `local.env.example` to `local.env` in this folder and fill in its `<from the vault>` values (national shares a filled copy through the vault item "portal development"). `local.env` is git-ignored by the `*.env` rule; never commit it. The example below is the minimum; the template also lists the sandbox tools, all off.
+1. **Copy** `local.env.example` to `local.env` in this folder, or save national's filled copy (the vault item "portal development") under that name. `local.env` is git-ignored by the `*.env` rule; never commit it.
+2. **Fill in** every `<from the vault>` value in the sign-in block. The stage 2 tools further down are all off and can stay as they are.
+3. **Change the three address lines to the frontend's port.** The template has them on 8080, for running the API on its own. Behind the frontend's dev server all three must be 5173, or GitHub returns to the wrong port and email links point at the API:
+   ```sh
+   PORTAL_BASE_URL=http://localhost:5173
+   PORTAL_FRONTEND_URL=http://localhost:5173
+   PORTAL_JOIN_BASE_URL=http://localhost:5173/join
+   ```
+
+`./gradlew bootRun -PenvFile=local.env` ([step 5](#5-start-the-api)) loads the file. It takes one file, with `NAME=value` lines; values may be JSON-quoted.
+
+The lines that matter, once edited:
 
 ```sh
 # Where browsers reach the app: the frontend's dev server, for both.
@@ -58,25 +73,15 @@ PORTAL_GOOGLE_CLIENT_SECRET=...
 PORTAL_GITHUBOAUTH_CLIENTID=...
 PORTAL_GITHUBOAUTH_CLIENTSECRET=...
 
-# Optional: the fake member database as a live integration, so the National page's member-database
-# section has something to show. Writes stay in dry run unless PORTAL_MEMBERDB_WRITE=true.
-# MEMBER_DB_URL=jdbc:postgresql://localhost:5433/memberdb
-# MEMBER_DB_USERNAME=memberdb
-# MEMBER_DB_PASSWORD=memberdb
-# PORTAL_MEMBERDB_PULL=true
-
-# Stage 2: the sync's tools. Each is read only with ENABLED and changed only with WRITE as well; every tool starts in
-# dry run. Their credentials come with each tool's adapter (packages 3-Slack, 3-Google, 3-GitHub, 3-Vaultwarden).
-# PORTAL_ADAPTERS_SLACK_ENABLED=true
-# PORTAL_ADAPTERS_SLACK_BOTTOKEN=xoxb-...   (the sandbox app's, from the secrets store)
-# PORTAL_SYNC_CRON=0 0 3 * * *
+# The fake member database as a live integration, so the National page's member-database section has
+# something to show. Set PULL to true to pull on a schedule. Writes stay in dry run unless PORTAL_MEMBERDB_WRITE=true.
+MEMBER_DB_URL=jdbc:postgresql://localhost:5433/memberdb
+MEMBER_DB_USERNAME=memberdb
+MEMBER_DB_PASSWORD=memberdb
+PORTAL_MEMBERDB_PULL=false
 ```
 
-For Vaultwarden and Documenso there's no shared sandbox. `scripts/sandbox-setup.sh` starts local ones (Docker: Vaultwarden over HTTPS on `localhost:8443`, Documenso on `localhost:3010`, their mail in Mailpit on `localhost:8025`), seeds them, and writes their settings to `deploy/sandbox/sandbox.env`; pass that file as the `-PenvFile`, or copy its lines into `local.env`. `scripts/sandbox-e2e.sh` runs the sandbox suite against them (README, "Sandbox suite"). `docker compose -f deploy/sandbox/compose.yml down -v` removes them. For a quick Vaultwarden on its own, `scripts/vaultwarden-local.sh vaultwarden.env` starts a throwaway one on `127.0.0.1:8090`.
-
-To see what a sync would do without changing anything: `./gradlew bootRun -PenvFile=local.env --args='--spring.profiles.active=sync-dry-run'` prints one dry run per enabled tool and exits; `--spring.profiles.active=adapter-check` lists what each enabled tool's adapter can read. Like `preflight`, both run in the `one-shot` profile: no background work starts.
-
-`bootRun -PenvFile=local.env` loads it (`NAME=value` lines; values may be JSON-quoted). `deploy/fetch-secrets.sh "<vault item>" local.env` writes the same format from the vault.
+The stage 2 tools (Slack, GitHub, Google groups, Vaultwarden, Documenso) aren't needed for sign-in, Join, Claim or Approvals: see [Optional: the stage 2 tools](#optional-the-stage-2-tools).
 
 ## 4. Data to sign in with
 
@@ -117,7 +122,7 @@ The dev server must forward four path prefixes to `http://localhost:8080`, **kee
 /api   /oauth2   /login/oauth2   /logout
 ```
 
-Forward `/v3` and `/scalar` too if you want the live spec at `/v3/api-docs` and its reference page at `/scalar`. Without the frontend, open `http://localhost:8080/oauth2/authorization/google` to sign in, then `http://localhost:8080/scalar`.
+Two more are optional: `/v3` and `/scalar`, for the live spec at `/v3/api-docs` and its [reference page](#the-api-reference-scalar) at `/scalar`.
 
 ### Vite
 
@@ -130,8 +135,11 @@ const api = 'http://localhost:8080'
 export default defineConfig({
   server: {
     port: 5173,
+    // The four the app needs, then the two for the API reference page (optional).
     // changeOrigin stays false (the default) so the Host header is kept.
-    proxy: Object.fromEntries(['/api', '/oauth2', '/login/oauth2', '/logout', '/v3'].map((path) => [path, api])),
+    proxy: Object.fromEntries(
+      ['/api', '/oauth2', '/login/oauth2', '/logout', '/v3', '/scalar'].map((path) => [path, api]),
+    ),
   },
 })
 ```
@@ -166,13 +174,18 @@ With both running, from the browser at `http://localhost:5173`:
 
 ### The API reference (Scalar)
 
-The spec as a browsable page, with each endpoint's parameters, schemas and a "Test request" button. It works without the frontend:
+The spec as a browsable page, with each endpoint's parameters, schemas and a "Test request" button. You need to be signed in with Google, because the page loads `/v3/api-docs`. Signing in is enough: no `grant` needed to read the spec.
 
-1. **Start the API** ([step 5](#5-start-the-api)). With `PORTAL_BASE_URL=http://localhost:8080`, the Google client needs `http://localhost:8080/login/oauth2/code/google` as a redirect URI; the development client has it.
-2. **Sign in:** open `http://localhost:8080/oauth2/authorization/google` and choose your H4I account. Signing in is enough: no `grant` needed to read the spec. Afterwards Google sends you to `PORTAL_FRONTEND_URL`; with the API alone that's a 404 page, which is fine.
-3. **Open `http://localhost:8080/scalar`** in the same browser. Behind the frontend's dev server it's `http://localhost:5173/scalar`, once `/scalar` and `/v3` are forwarded ([step 6](#6-point-the-frontend-at-it)).
+**Behind the frontend** (the setup above, with `/v3` and `/scalar` forwarded as in [step 6](#6-point-the-frontend-at-it)): sign in as in "Check it works", then open `http://localhost:5173/scalar`.
 
-If the page loads but shows no endpoints, the spec request failed with 401: sign in again (step 2). "Test request" sends your session cookie, so GETs work as you. Writes also need the `X-XSRF-TOKEN` header, copied from the `XSRF-TOKEN` cookie, which Scalar doesn't add. Without sign-in, `openapi.json` in this folder is the same spec.
+**Without the frontend running:**
+
+1. **Start the API** ([step 5](#5-start-the-api)). The same `local.env` works.
+2. **Sign in:** open `http://localhost:8080/oauth2/authorization/google` and choose your H4I account. This uses the redirect URI `http://localhost:8080/login/oauth2/code/google`, which the development Google client has.
+3. **Ignore where you land.** Google sends you on to `PORTAL_FRONTEND_URL/`. With the 5173 settings and no frontend running, the browser says it can't connect; with the template's 8080 settings it's a 404 page. Either way you're signed in.
+4. **Open `http://localhost:8080/scalar`** in the same browser.
+
+If the page loads but shows no endpoints, the spec request failed with 401: sign in again. "Test request" sends your session cookie, so GETs work as you. Writes also need the `X-XSRF-TOKEN` header, copied from the `XSRF-TOKEN` cookie, which Scalar doesn't add. Without sign-in, `openapi.json` in this folder is the same spec.
 
 ### Trying the flows
 
@@ -199,6 +212,34 @@ docker compose down -v        # from this folder: deletes the local databases an
 ```
 
 Then repeat [step 4](#4-data-to-sign-in-with).
+
+## Optional: the stage 2 tools
+
+Skip this unless you're working on projects, the sync or agreements. Every tool is off in the template.
+
+**Turning a tool on.** Set its `PORTAL_ADAPTERS_<TOOL>_ENABLED=true` in `local.env` and fill in its credentials from the vault. `ENABLED` only reads, and every tool starts in dry run. Changing a tool needs its `WRITE` as well, which changes the shared sandbox for everyone: leave that to the sandbox suite. What each setting means is in the README's "Configuration" table.
+
+**Seeing what a sync would do**, without changing anything:
+
+```sh
+./gradlew bootRun -PenvFile=local.env --args='--spring.profiles.active=sync-dry-run'    # one dry run per enabled tool, then exits
+./gradlew bootRun -PenvFile=local.env --args='--spring.profiles.active=adapter-check'   # what each enabled tool's adapter can read
+```
+
+Both are one-shot commands: no background work starts.
+
+**Vaultwarden and Documenso** have no shared sandbox, so you run local ones:
+
+```sh
+scripts/sandbox-setup.sh                               # once: starts and seeds them in Docker
+docker compose -f deploy/sandbox/compose.yml down -v   # removes them
+```
+
+They run at Vaultwarden `https://localhost:8443`, Documenso `http://localhost:3010`, and their own Mailpit `http://localhost:8025`. The script writes their settings to `deploy/sandbox/sandbox.env`. `bootRun` takes one env file, so either copy those lines into `local.env`, or pass `-PenvFile=deploy/sandbox/sandbox.env` on its own. For a quick Vaultwarden by itself, `scripts/vaultwarden-local.sh vaultwarden.env` starts a throwaway one on `127.0.0.1:8090`.
+
+**The sandbox suite** (`scripts/sandbox-e2e.sh`) really changes the sandboxes and checks each tool. It does accept several env files. See the README, "Sandbox suite".
+
+**Getting settings from the vault:** `deploy/fetch-secrets.sh "<vault item>" local.env` writes the file in the same format.
 
 ## Troubleshooting
 
