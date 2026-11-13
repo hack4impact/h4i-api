@@ -204,14 +204,16 @@ class RegistrationService(
 		val d = input.details
 		d.personalEmail?.takeIf { it.isNotBlank() }?.let { if (!EMAIL.matches(it.trim())) bad("That personal email doesn't look right") }
 		d.graduationYear?.let { if (it !in 2000..2100) bad("Graduation year should look like 2028") }
-		d.graduationSeason?.takeIf { it.isNotBlank() }?.let { if (it !in SEASONS) bad("Graduation season is spring, summer, fall or winter") }
+		// Any case or padding ("Fall", " fall "); saved lower case, as the member database's terms are (black-box tests F4).
+		val season = d.graduationSeason?.trim()?.lowercase()?.ifEmpty { null }
+		season?.let { if (it !in SEASONS) bad("Graduation season is spring, summer, fall or winter") }
 		if ((d.major?.length ?: 0) > 150 || (d.degreeType?.length ?: 0) > 150) bad("Major and degree type are at most 150 characters")
 		val known = questions(r.chapterId!!).map { it.id.toString() }.toSet()
 		val answers = input.answers.filterKeys { it in known }.mapValues { it.value.take(4000) }
 		dsl.update(REGISTRATION)
 			.set(REGISTRATION.FIRST_NAME, d.firstName?.trim()).set(REGISTRATION.LAST_NAME, d.lastName?.trim())
 			.set(REGISTRATION.PREFERRED_NAME, d.preferredName?.trim()?.ifEmpty { null }).set(REGISTRATION.PERSONAL_EMAIL, d.personalEmail?.trim()?.lowercase()?.ifEmpty { null })
-			.set(REGISTRATION.GRADUATION_YEAR, d.graduationYear).set(REGISTRATION.GRADUATION_SEASON, d.graduationSeason?.trim()?.ifEmpty { null })
+			.set(REGISTRATION.GRADUATION_YEAR, d.graduationYear).set(REGISTRATION.GRADUATION_SEASON, season)
 			.set(REGISTRATION.MAJOR, d.major?.trim()?.ifEmpty { null }).set(REGISTRATION.DEGREE_TYPE, d.degreeType?.trim()?.ifEmpty { null })
 			.set(REGISTRATION.ROLE_INTEREST, d.roleInterest?.trim()?.ifEmpty { null })
 			.set(REGISTRATION.STILL_ACTIVE, d.stillActive).set(REGISTRATION.ANSWERS, JSONB.valueOf(json.writeValueAsString(answers)))

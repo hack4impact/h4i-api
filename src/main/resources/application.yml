@@ -76,7 +76,9 @@ server:
   shutdown: graceful
   # Behind the Cloudflare Tunnel or a proxy: the visitor's address and scheme come from X-Forwarded-*, trusted only when
   # the request comes from an internal address (Tomcat's default list), so rate limits and the Google redirect URI see
-  # the real visitor and https (code review H6).
+  # the real visitor and https (code review H6). Tomcat's list trusts every private range (10/8, 172.16/12, 192.168/16,
+  # 100.64/10, 127/8, fc00::/7, ...), so anyone reaching the port from those could set their own address: narrow it in a
+  # deployment with SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES (a regex) to the proxy's address (wiki Q84).
   forward-headers-strategy: native
 
 management:

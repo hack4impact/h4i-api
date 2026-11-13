@@ -231,6 +231,14 @@ class RegistrationTests(
 	}
 
 	@Test
+	fun `graduation season takes any case and is saved lower case (black-box tests F4)`() {
+		val cookie = verified("ada@umd.edu")
+		json("/api/apply/me", """{"details":{"graduationSeason":"Autumn"}}""", cookie, method = "PUT").andExpect { status { isBadRequest() } }
+		json("/api/apply/me", """{"details":{"graduationSeason":" Fall "}}""", cookie, method = "PUT").andExpect { status { isOk() } }
+		me(cookie).andExpect { jsonPath("$.details.graduationSeason") { value("fall") } }
+	}
+
+	@Test
 	fun `an applicant session reaches only its own registration, and the applicant API needs CSRF`() {
 		val cookie = verified("ada@umd.edu")
 		mvc.get("/api/me") { cookie(cookie) }.andExpect { status { isUnauthorized() } } // not a Google sign-in

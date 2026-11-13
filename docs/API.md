@@ -67,7 +67,7 @@ There is no CORS configuration, so calling the API directly from another origin 
 
 ### Member sign-in (Google)
 
-1. **Start:** do a full-page navigation (not `fetch`) to `/oauth2/authorization/google`. The API redirects to Google, with `hd=hack4impact.org` so Google's account picker suggests H4I accounts.
+1. **Start:** do a full-page navigation (not `fetch`) to `/oauth2/authorization/google`. The API redirects to Google with `hd=*`, so Google's account picker offers only Workspace accounts. It doesn't send `hd=hack4impact.org`, because with that hint chapter accounts (`you@umd.hack4impact.org`) can't be typed in. The domain is checked in step 3 instead.
 2. **Callback:** Google returns to `/login/oauth2/code/google` on the same host. The redirect URI is built from the request's `Host` header, so through a proxy it's the frontend's address, e.g. `https://portal.hack4impact.org/login/oauth2/code/google`. That exact URI must be registered on the Google OAuth client.
 3. **Result:** the API checks the ID token (verified email, Workspace `hd` and the address both in the allowed domain) and redirects:
    - Success: to `PORTAL_FRONTEND_URL/`.
@@ -98,7 +98,7 @@ Every request that changes something (`POST`, `PUT`, `DELETE`, `PATCH`) needs a 
 
 - The token is in the `XSRF-TOKEN` cookie (`Path=/`, readable by JavaScript).
 - Send it back as the `X-XSRF-TOKEN` header, the cookie's value as is.
-- **Getting the first token:** any `GET` outside `/api/apply` sets the cookie. Applicant endpoints don't. So before an applicant's first `POST`, call `GET /api/status` once (public, cheap). Calling it when the app starts is the simplest way.
+- **Getting the first token:** any `GET` sets the cookie, applicant endpoints under `/api/apply` included, and so do ones that answer `401` or `404`. The simplest way is to call `GET /api/status` once when the app starts (public, cheap), so a token is there before the first `POST`.
 - A missing or wrong token answers `403` with the Spring error body, not a problem detail.
 
 ```ts
@@ -952,7 +952,7 @@ The full schemas are in `openapi.json`. These are the fields whose meaning or va
 | Account `state` (`AccountSummary`, `MyAccount`) | `unverified`, `invited`, `accepted`, `confirmed`, `suspended`, `removed` |
 | Account `tool` | `slack`, `google`, `github`, `notion`, `vaultwarden` (see `GET /api/tools`) |
 | Question `kind` | `text`, `long_text`, `choice`, `yes_no` |
-| Graduation season | `spring`, `summer`, `fall`, `winter` |
+| Graduation season | `spring`, `summer`, `fall`, `winter` (any case accepted; returned lower case) |
 | Roster invite `status` | `sent`, `started`, `completed`, `expired` |
 | Admin task `status` | `open`, `done`, `cancelled` |
 | Admin task `action` | `create_account`, `check_account`; *stage 2:* `confirm_removals`, `create_resource`, `add_member`, `remove_member`, `missing_resource`, `resource_exists` (see [Admin queue](#admin-queue)). Show `description`, which says what to do |
@@ -978,6 +978,8 @@ The full schemas are in `openapi.json`. These are the fields whose meaning or va
 | Applicant session | 7 days, or until decided |
 | Roster upload | 500 rows |
 | Claim batch | `limit` 1–1000, default 200 |
+
+**The caller's IP address:** from `X-Forwarded-For`, but only when the request comes from a trusted proxy. By default that means a private or loopback address (Tomcat's internal proxy list: `10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `127/8`, `169.254/16` and IPv6 loopback, link-local and `fc00::/7`). Any other caller is counted by its own address and the header is ignored. So in local development, where you call from `localhost`, any `X-Forwarded-For` you send is believed. The deployment should let the API be reached only through its proxy (see the README's `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES`).
 | Answers | 4000 characters each |
 | Major, degree type | 150 characters |
 | Lists | Members unlimited; roster invites, queue tasks, member-DB rows: latest 500 |
