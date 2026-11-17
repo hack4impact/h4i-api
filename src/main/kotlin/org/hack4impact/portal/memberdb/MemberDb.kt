@@ -23,6 +23,8 @@ data class MemberDbProperties(
 	val pullInterval: Duration = Duration.ofMinutes(15),
 	/** The write switch: without it the portal never writes, whatever national sets (like the tools' write switches). */
 	val write: Boolean = false,
+	/** How long to wait for a connection before a write or pull counts the member database as unreachable. */
+	val connectTimeout: Duration = Duration.ofSeconds(10),
 )
 
 /** The connection: its own small pool, not the portal's data source. Nothing connects until it's first used. */
@@ -39,7 +41,7 @@ class MemberDb(private val properties: MemberDbProperties) : AutoCloseable {
 				password = properties.password
 				maximumPoolSize = 2
 				poolName = "member-db"
-				connectionTimeout = Duration.ofSeconds(10).toMillis()
+				connectionTimeout = properties.connectTimeout.toMillis()
 			},
 		)
 	}

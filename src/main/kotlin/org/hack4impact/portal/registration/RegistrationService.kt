@@ -247,9 +247,12 @@ class RegistrationService(
 			return
 		}
 		val match = matcher.match(r)
-		dsl.update(REGISTRATION).set(REGISTRATION.STATUS, "submitted").set(REGISTRATION.SUBMITTED_AT, OffsetDateTime.now())
+		// Only from "started": sent twice at once (a double click), the second finds it already sent, instead of
+		// putting an approved roster invite back to "submitted" and making the person a second time.
+		val sent = dsl.update(REGISTRATION).set(REGISTRATION.STATUS, "submitted").set(REGISTRATION.SUBMITTED_AT, OffsetDateTime.now())
 			.set(REGISTRATION.MATCH_STATUS, match.status).set(REGISTRATION.MATCHED_PERSON_IDS, match.people.keys.toTypedArray())
-			.where(REGISTRATION.ID.eq(registration)).execute()
+			.where(REGISTRATION.ID.eq(registration), REGISTRATION.STATUS.eq("started")).execute()
+		if (sent == 0) throw ResponseStatusException(HttpStatus.CONFLICT, "This application was already sent")
 		// Approved at once only when the roster invitee matches nobody; any match waits for a lead, like an application
 		// (second review H3: evidence the applicant typed must never merge them into someone else's record).
 		if (r.kind == "roster" && match.status == "new") {
@@ -345,8 +348,11 @@ class RegistrationService(
 		if (r.chapterId != chapterId) throw ResponseStatusException(HttpStatus.NOT_FOUND, "Not this chapter's")
 		if (r.status != "submitted") throw ResponseStatusException(HttpStatus.CONFLICT, "This application is ${r.status}")
 		if (reason.isBlank()) bad("Say why: the applicant gets the reason by email (PRD)")
-		dsl.update(REGISTRATION).set(REGISTRATION.STATUS, "declined").set(REGISTRATION.DECLINE_REASON, reason.trim())
-			.set(REGISTRATION.DECIDED_BY, decidedBy).set(REGISTRATION.DECIDED_AT, OffsetDateTime.now()).where(REGISTRATION.ID.eq(registration)).execute()
+		// Only while it still waits: an approval at the same moment holds the row, and once it's through this changes nothing.
+		val declined = dsl.update(REGISTRATION).set(REGISTRATION.STATUS, "declined").set(REGISTRATION.DECLINE_REASON, reason.trim())
+			.set(REGISTRATION.DECIDED_BY, decidedBy).set(REGISTRATION.DECIDED_AT, OffsetDateTime.now())
+			.where(REGISTRATION.ID.eq(registration), REGISTRATION.STATUS.eq("submitted")).execute()
+		if (declined == 0) throw ResponseStatusException(HttpStatus.CONFLICT, "This application is ${record(registration).status}")
 		sessions.revoke(registration)
 		val chapter = dsl.select(CHAPTER.NAME).from(CHAPTER).where(CHAPTER.ID.eq(chapterId)).fetchSingle().value1()!!
 		listOfNotNull(r.personalEmail, r.schoolEmail).distinct().forEach { mailer.send(Emails.declined(r.firstName ?: "there", chapter, reason.trim()), it, registration) }
@@ -395,7 +401,8 @@ class RegistrationService(
 	/** Parses a roster CSV (first_name, last_name, school_email, optional personal_email) and invites each row. */
 	@Transactional
 	fun roster(chapterId: UUID, csv: String, actor: UUID?): RosterResult {
-		val chapter = dsl.selectFrom(CHAPTER).where(CHAPTER.ID.eq(chapterId)).fetchSingle()
+		// One upload per chapter at a time: two at once would each find nobody invited yet and invite everyone twice.
+		val chapter = dsl.selectFrom(CHAPTER).where(CHAPTER.ID.eq(chapterId)).forNoKeyUpdate().fetchSingle()
 		val lines = csv.lines().map { it.trim() }.filter { it.isNotEmpty() }
 		if (lines.isEmpty()) bad("The roster is empty")
 		val header = csvCells(lines.first()).map { it.lowercase().replace(' ', '_') }
