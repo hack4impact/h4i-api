@@ -1,4 +1,4 @@
-# Running the stage 1 API next to your frontend
+# Running the portal API next to your frontend
 
 How to run this API on your machine with the H4I portal frontend in front of it, so sign-in, Join, Claim and Approvals work end to end. What each endpoint does is in [API.md](API.md).
 
@@ -7,7 +7,7 @@ How to run this API on your machine with the H4I portal frontend in front of it,
 ```
  browser ──► frontend dev server  http://localhost:5173
                ├─ your pages (/, /apply, /claim/…, /join/…)
-               └─ forwards /api  /oauth2  /login/oauth2  /logout ──► stage 1 API  http://localhost:8080
+               └─ forwards /api  /oauth2  /login/oauth2  /logout ──► portal API   http://localhost:8080
                                                                         ├─ Postgres (app database)    Docker, random port
                                                                         ├─ fake member database       Docker, localhost:5433
                                                                         └─ Mailpit (catches email)    Docker, localhost:1026 / UI on :8026
@@ -44,7 +44,7 @@ Without Google nobody can sign in. Without GitHub, applicants can't finish Join 
 ## 3. A local settings file
 
 1. **Copy** `local.env.example` to `local.env` in this folder, or save national's filled copy (the vault item "portal development") under that name. `local.env` is git-ignored by the `*.env` rule; never commit it.
-2. **Fill in** every `<from the vault>` value in the sign-in block. The stage 2 tools further down are all off and can stay as they are.
+2. **Fill in** every `<from the vault>` value in the sign-in block. The tools further down (Slack, GitHub, Google groups, Vaultwarden, Documenso) are all off and can stay as they are.
 3. **Change the three address lines to the frontend's port.** The template has them on 8080, for running the API on its own. Behind the frontend's dev server all three must be 5173, or GitHub returns to the wrong port and email links point at the API:
    ```sh
    PORTAL_BASE_URL=http://localhost:5173
@@ -81,11 +81,11 @@ MEMBER_DB_PASSWORD=memberdb
 PORTAL_MEMBERDB_PULL=false
 ```
 
-The stage 2 tools (Slack, GitHub, Google groups, Vaultwarden, Documenso) aren't needed for sign-in, Join, Claim or Approvals: see [Optional: the stage 2 tools](#optional-the-stage-2-tools).
+The tools (Slack, GitHub, Google groups, Vaultwarden, Documenso) aren't needed for sign-in, Join, Claim or Approvals: see [Optional: the tools](#optional-the-tools).
 
 ## 4. Data to sign in with
 
-Stage 1 has no demo seed. Build the data from the fake member database, which has no real people and chapters `umd` and `gt`. Run these once, from this folder, before starting the API.
+There's no demo seed. Build the data from the fake member database, which has no real people and chapters `umd` and `gt`. Run these once, from this folder, before starting the API.
 
 ```sh
 # Import chapters, schools, terms and people (claimable records) from the fake member database.
@@ -213,7 +213,7 @@ docker compose down -v        # from this folder: deletes the local databases an
 
 Then repeat [step 4](#4-data-to-sign-in-with).
 
-## Optional: the stage 2 tools
+## Optional: the tools
 
 Skip this unless you're working on projects, the sync or agreements. Every tool is off in the template.
 
